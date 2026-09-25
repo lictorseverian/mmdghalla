@@ -2,7 +2,9 @@
 """Build the known-world web map.
 
   build_site.py digest WORLD_DIR                 print a hash of the cartography-table data
-  build_site.py build  WORLD_DIR DUMP_BIN OUT    render tiles + index.html into OUT
+  build_site.py build  WORLD_DIR DUMP_BIN OUT [STATE_DIR]
+                                                 render tiles + index.html into OUT; with STATE_DIR,
+                                                 also update the activity feed kept there
 
 Terrain comes from vegvisr's Rust port of Valheim's world generator (the `dump` binary),
 only for the explored bounding box. Unexplored ground is fogged.
@@ -14,7 +16,7 @@ from PIL import Image
 from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import vkw, objects
+import vkw, objects, feed
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MPP, TILE, NATIVE_Z, MARGIN = 2.0, 512, 5, 24
@@ -96,8 +98,15 @@ def write_tiles(im, out):
     return count
 
 
-def build(world_dir, dump_bin, out):
+def build(world_dir, dump_bin, out, state_dir=None):
     info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
+    saved_at = os.path.getmtime(os.path.join(world_dir, f'_main.{vkw.latest_generation(world_dir)}.ok'))
+    if state_dir:
+        fd = feed.update(state_dir, feed.snapshot(ex, pins, objs, bosses, day, int(saved_at)))
+        print(f"feed: {len(fd['events'])} events since {fd['since']}", file=sys.stderr)
+        page_feed = feed.for_page(fd)
+    else:
+        page_feed = dict(since=None, events=[])
     ys, xs = np.nonzero(ex)
     gx0, gx1 = int(xs.min()) - MARGIN, int(xs.max()) + MARGIN + 1
     gy0, gy1 = int(ys.min()) - MARGIN, int(ys.max()) + MARGIN + 1
@@ -118,7 +127,7 @@ def build(world_dir, dump_bin, out):
                 km2=km2, asOf=as_of, day=day, bosses=bosses,
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
                              pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),
-                clan=objs['clan'],
+                clan=objs['clan'], feed=page_feed, tz=TZ,
                 pins=[dict(n=vkw.pretty(p['name']), raw=p['name'], x=round(p['x'], 1), z=round(p['z'], 1),
                            t=p['type'], c=p['checked']) for p in pins])
     tpl = open(os.path.join(ROOT, 'web', 'template.html'), encoding='utf-8').read()
@@ -141,7 +150,7 @@ if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else ''
     if cmd == 'digest' and len(sys.argv) == 3:
         print(objects.state(sys.argv[2])[6])
-    elif cmd == 'build' and len(sys.argv) == 5:
+    elif cmd == 'build' and len(sys.argv) in (5, 6):
         build(*sys.argv[2:])
     else:
         sys.exit(__doc__)

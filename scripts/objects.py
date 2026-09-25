@@ -175,7 +175,7 @@ def extract(world_dir, gen, files, pins):
                     ids[l[K_OWNER]] = s[K_OWNER_NAME]
             creator = l.get(K_CREATOR, 0)
             if creator:
-                pieces.append((x, z, material(name), name, creator))
+                pieces.append((x, z, material(name), name, creator, y))
             blob = fields.get('b', {}).get(K_ITEMS)
             if blob and (name == 'Player_tombstone' or creator):
                 try:
@@ -191,11 +191,17 @@ def extract(world_dir, gen, files, pins):
                     tombs.append(dict(owner=s.get(K_OWNER_NAME, 'Someone'), x=round(x, 1), z=round(z, 1),
                                       day=int(l.get(K_TIME_OF_DEATH, 0) // TICKS_PER_DAY), items=inv))
                 else:
-                    chests.append(dict(x=x, z=z, items=inv))
+                    chests.append(dict(x=x, z=z, items=inv, creator=creator))
 
     bases = cluster(pieces, beds, portals, pins)
+    base_details(bases, ids, chests, pins, tombs)
+    who = lambda pid: ids.get(pid, 'Unknown viking')
+    raw = dict(pieces=[(round(x, 1), round(y, 1), round(z, 1), name, who(pid)) for x, z, _m, name, pid, y in pieces])
+    for b in bases:
+        b.pop('_ps', None)
     mat_count = collections.Counter(p[2] for p in pieces)
-    return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases),
+    return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases), raw=raw,
+                _idnames=dict(ids),
                 graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], items=summarise(t['items']))
                         for t in tombs],
                 pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, *_ in pieces],
@@ -234,12 +240,36 @@ def cluster(pieces, beds, portals, pins, cell=24):
         if named and len(named[0]['name'].strip()) < 3 and tags:
             named = []
         kinds = collections.Counter(p[3] for p in ps)
-        bases.append(dict(x=round(cx, 1), z=round(cz, 1), r=round(r, 1), pieces=len(ps),
+        bases.append(dict(_ps=ps, x=round(cx, 1), z=round(cz, 1), r=round(r, 1), pieces=len(ps),
                           name=vkw.pretty(named[0]['name']) if named else (tags[0] if tags else None),
                           beds=owners, portals=tags,
                           workbenches=sum(v for k, v in kinds.items() if 'workbench' in k and 'ext' not in k)))
     bases.sort(key=lambda b: -b['pieces'])
     return bases
+
+
+def base_details(bases, ids, chests, pins, tombs):
+    """Per base: who built it, what its chests hold, which pins and graves are in or near it."""
+    who = lambda pid: ids.get(pid, 'Unknown viking')
+    near = lambda b, o, pad: math.hypot(o['x'] - b['x'], o['z'] - b['z']) <= b['r'] + pad
+    for b in bases:
+        builders = collections.Counter(who(p[4]) for p in b['_ps'])
+        b['builders'] = [[n, c] for n, c in builders.most_common()]
+        stone = sum(1 for p in b['_ps'] if p[2] == 'stone')
+        b['stone'] = round(100 * stone / max(1, len(b['_ps'])))
+        store, nchests = collections.Counter(), 0
+        for ch in chests:
+            if near(b, ch, 5):
+                nchests += 1
+                for it in ch['items']:
+                    if it['prefab']:
+                        store[it['prefab']] += it['stack']
+        b['chests'] = nchests
+        b['store'] = [[item_name(k), n] for k, n in store.most_common(40)]
+        b['store_total'] = sum(store.values())
+        b['pins'] = sorted({vkw.pretty(p['name']) for p in pins
+                            if p['name'].strip() and not p['name'].startswith('$') and near(b, p, 40)})
+        b['graves'] = sum(1 for t in tombs if near(b, t, 60))
 
 
 def summarise(inv):
@@ -264,7 +294,7 @@ def clan(ids, pieces, pins, tombs, chests, bases):
     base_of = {}
     for i, base in enumerate(bases):
         base_of[i] = base
-    for x, z, mat, _name, pid in pieces:
+    for x, z, mat, _name, pid, *_ in pieces:
         r = b[who(pid)]
         r['pieces'] += 1
         r['stone' if mat == 'stone' else 'wood' if mat in ('wood', 'darkwood') else 'other'] += 1

@@ -193,6 +193,37 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .pop .inv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 .pop .inv .by { color: #8a7f6c; font-size: 11.5px; }
 .pop .inv .q { color: var(--gold); }
+.linkbtn {
+  margin-top: 8px; background: var(--chip-on); color: var(--ink); border: 1px solid #5a4d39; border-radius: 6px;
+  font: 700 12.5px var(--body); padding: 6px 10px; cursor: pointer;
+}
+.linkbtn:focus-visible, .back:focus-visible, .fi:focus-visible, .brow:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.back { justify-self: start; background: none; border: none; color: var(--muted); font: 700 12px var(--body); letter-spacing: .08em; text-transform: uppercase; padding: 0; cursor: pointer; }
+.back:hover { color: var(--ink); }
+#basebody, #feedbody { overflow-y: auto; padding-bottom: 12px; }
+.bh { padding: 14px 18px 0; display: grid; gap: 4px; }
+.bh h2 { margin: 4px 0 0; font: 400 26px var(--display); line-height: 1.05; text-wrap: balance; }
+.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 2px; }
+.fact { background: #221e18; border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; }
+.fact b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+.fact span { color: var(--muted); font-size: 11.5px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chips span { background: #221e18; border: 1px solid var(--rule); border-radius: 4px; padding: 3px 7px; font-size: 12.5px; }
+.plist { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; font-size: 13.5px; }
+.plist b { color: #9fd8ff; }
+.brows { display: grid; gap: 2px; }
+.brow { display: grid; grid-template-columns: 1fr auto; gap: 10px; padding: 5px 8px; margin: 0 -8px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+.brow:hover { background: #2a251e; }
+.brow span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.fday { margin: 14px 0 4px; font: 700 11px var(--body); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+.fi { display: grid; grid-template-columns: 20px 1fr; gap: 10px; padding: 7px 8px; margin: 0 -8px; border-radius: 6px; font-size: 14px; line-height: 1.35; }
+.fi.go { cursor: pointer; }
+.fi.go:hover { background: #2a251e; }
+.fi svg { width: 18px; height: 18px; margin-top: 1px; }
+.fi .when { display: block; color: #8a7f6c; font-size: 12px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.fi.fboss { background: #2e2413; }
+.fi.fboss > span { color: var(--gold); font-weight: 700; }
+.empty-feed { color: var(--muted); line-height: 1.5; font-size: 14px; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -214,6 +245,7 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
     <div class="tabs" role="tablist" aria-label="Panel">
       <button class="tab" role="tab" id="tab-map" aria-selected="true" aria-controls="panelbody" type="button">Map</button>
       <button class="tab" role="tab" id="tab-clan" aria-selected="false" aria-controls="clanbody" type="button">Clan</button>
+      <button class="tab" role="tab" id="tab-feed" aria-selected="false" aria-controls="feedbody" type="button">Feed</button>
     </div>
   </div>
   <div class="body" id="panelbody" role="tabpanel" aria-labelledby="tab-map">
@@ -229,6 +261,8 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
     <ul id="list"></ul>
   </div>
   <div class="body" id="clanbody" role="tabpanel" aria-labelledby="tab-clan" hidden></div>
+  <div class="body" id="feedbody" role="tabpanel" aria-labelledby="tab-feed" hidden></div>
+  <div class="body" id="basebody" role="region" aria-label="Base" hidden></div>
   <div class="foot">Everything recorded at the cartography tables. Unrecorded ground stays under fog. Boss sites read from runestones show through it, the same as in game. Bases, portals and ships are read from the world itself. Coordinates are in-game x, z.</div>
 </section>
 
@@ -383,14 +417,15 @@ const pieceMarkers = O.pieces.map(([x, z, m]) => L.circleMarker(toLL(x, z), {
   renderer: canvas, radius: 2, stroke: false, fillColor: MATCOL[O.materials[m]] || MATCOL.other,
   fillOpacity: 0.95, interactive: false,
 }).addTo(piecesLayer));
-O.bases.forEach(b => {
+O.bases.forEach((b, bi) => {
   const ring = L.circle(toLL(b.x, b.z), { radius: b.r / UNIT_M, color: '#e8c98c', weight: 1.5, opacity: 0.8,
     dashArray: '4 5', fill: true, fillColor: '#e8c98c', fillOpacity: 0.06 });
   const title = b.name || (b.portals.length ? b.portals[0] : 'Unnamed base');
   const html = `<div class="pop"><h3>${esc(title)}</h3>
     <div class="k">Base · ${b.pieces.toLocaleString('en-US')} pieces${b.workbenches ? ` · ${b.workbenches} workbench${b.workbenches > 1 ? 'es' : ''}` : ''}</div>
     ${b.beds.length ? `<div class="k">Beds: ${b.beds.map(esc).join(', ')}</div>` : ''}
-    ${b.portals.length ? `<div class="k">Portals: ${b.portals.map(esc).join(', ')}</div>` : ''}</div>`;
+    ${b.portals.length ? `<div class="k">Portals: ${b.portals.map(esc).join(', ')}</div>` : ''}
+    <button class="linkbtn" type="button" data-base="${bi}">Open base page</button></div>`;
   ring.bindPopup(html);
   const sz = b.pieces >= 300 ? 24 : b.pieces >= 60 ? 20 : 16;
   const mk = L.marker(toLL(b.x, b.z), { icon: objIcon(OSVG.base, sz), keyboard: false, title, zIndexOffset: 200 }).bindPopup(html);
@@ -467,8 +502,9 @@ const LAYERS = [
   ['graves', 'Graves', OSVG.grave, O.graves.length, gravesLayer],
 ];
 const lbox = document.getElementById('layers');
-LAYERS.forEach(([key, label, svg, n, layer]) => {
+function addLayerChip(key, label, svg, n, layer) {
   if (!n) return;
+  layerOn[key] = true;
   map.addLayer(layer);
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'chip'; b.id = 'l-' + key; b.setAttribute('aria-pressed', 'true');
@@ -480,7 +516,8 @@ LAYERS.forEach(([key, label, svg, n, layer]) => {
     sizePieces();
   };
   lbox.appendChild(b);
-});
+}
+LAYERS.forEach(l => addLayerChip(...l));
 map.on('zoomend', sizePieces);
 sizePieces();
 
@@ -532,16 +569,150 @@ clanBox.querySelectorAll('.grave').forEach(li => {
   li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
 });
 
-const tabMap = document.getElementById('tab-map'), tabClan = document.getElementById('tab-clan');
-function showTab(clan) {
-  tabMap.setAttribute('aria-selected', String(!clan)); tabClan.setAttribute('aria-selected', String(clan));
-  document.getElementById('panelbody').hidden = clan; clanBox.hidden = !clan;
-  if (narrow() && panel.classList.contains('collapsed')) setCollapsed(false);
-  try { localStorage.setItem('vkw-tab', clan ? 'clan' : 'map'); } catch (e) {}
-}
-tabMap.onclick = () => showTab(false);
-tabClan.onclick = () => showTab(true);
 
+// ---------- base pages ----------
+const baseBox = document.getElementById('basebody');
+const baseTitle = b => b.name || (b.portals.length ? b.portals[0] : 'Unnamed base');
+let returnTab = 'map';
+function showBase(i) {
+  const b = O.bases[i];
+  const inside = o => dist(b, o) <= b.r + 20;
+  const recent = (D.feed.events || []).filter(e => e.x != null && inside(e)).slice(0, 12);
+  const top = Math.max(1, ...b.builders.map(r => r[1]));
+  const portals = O.portals.filter(p => dist(p, b) <= b.r + 10);
+  baseBox.innerHTML = `
+    <div class="bh"><button class="back" type="button" id="base-back">← Back</button>
+      <h2>${esc(baseTitle(b))}</h2>
+      <div class="facts">
+        <div class="fact"><b>${nf(b.pieces)}</b><span>pieces · ${b.stone}% stone</span></div>
+        <div class="fact"><b>${b.chests}</b><span>chest${b.chests === 1 ? '' : 's'} · ${nf(b.store_total)} items</span></div>
+        <div class="fact"><b>${b.beds.length}</b><span>bed${b.beds.length === 1 ? '' : 's'}${b.workbenches ? ` · ${b.workbenches} bench${b.workbenches > 1 ? 'es' : ''}` : ''}</span></div>
+      </div>
+    </div>
+    <section class="cs"><h2>Built by</h2>
+      <div class="lb">${b.builders.map(([n, c]) => `<div class="lbr"><span class="n">${esc(n)}</span><span class="v">${nf(c)}</span>
+        <span class="bar"><i style="width:${(100 * c / top).toFixed(2)}%;background:#c08a50"></i></span></div>`).join('')}</div>
+    </section>
+    ${b.beds.length ? `<section class="cs"><h2>Beds</h2><div class="chips">${b.beds.map(n => `<span>${esc(n)}</span>`).join('')}</div></section>` : ''}
+    ${portals.length ? `<section class="cs"><h2>Portals</h2><ul class="plist">${portals.slice().sort((a, c) => a.tag.localeCompare(c.tag, 'pt')).map(p => {
+        const q = partnerOf(p);
+        return `<li><b>${esc(p.tag || 'Untagged')}</b> → ${q ? esc(placeName(q)) + ' · ' + km(dist(p, q)) : 'no partner yet'}</li>`;
+      }).join('')}</ul></section>` : ''}
+    ${b.pins.length ? `<section class="cs"><h2>Pins here</h2><div class="chips">${b.pins.map(n => `<span>${esc(n)}</span>`).join('')}</div></section>` : ''}
+    ${recent.length ? `<section class="cs"><h2>Recent activity</h2><div>${recent.map(feedItem).join('')}</div></section>` : ''}
+    <section class="cs tre"><h2>In the chests</h2>
+      <div class="sub">${b.chests ? `${nf(b.store_total)} items in ${b.chests} chest${b.chests === 1 ? '' : 's'}.` : 'No chests here.'}${b.graves ? ` ${b.graves} unrecovered grave${b.graves === 1 ? '' : 's'} nearby.` : ''}</div>
+      ${b.store.length ? `<dl>${b.store.map(([n, c]) => `<dt>${esc(n)}</dt><dd>${nf(c)}</dd>`).join('')}</dl>` : ''}
+    </section>`;
+  document.getElementById('base-back').onclick = () => showTab(returnTab);
+  wireFeedItems(baseBox);
+  if (!['base'].includes(currentTab)) returnTab = currentTab;
+  showTab('base');
+  baseBox.scrollTop = 0;
+  map.flyTo(toLL(b.x, b.z), Math.max(map.getZoom(), b.r > 60 ? 5 : 5.5), { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
+}
+map.on('popupopen', e => {
+  const btn = e.popup.getElement().querySelector('[data-base]');
+  if (btn) btn.onclick = () => { map.closePopup(); showBase(+btn.dataset.base); };
+});
+
+// Clan tab gets a list of bases
+clanBox.insertAdjacentHTML('beforeend', `<section class="cs"><h2>Bases</h2><div class="sub">Tap a base for its page.</div>
+  <div class="brows">${O.bases.map((b, i) => `<div class="brow" tabindex="0" data-bi="${i}"><span>${esc(baseTitle(b))}</span><span>${nf(b.pieces)} pieces</span></div>`).join('')}</div></section>`);
+clanBox.querySelectorAll('.brow').forEach(r => {
+  r.onclick = () => showBase(+r.dataset.bi);
+  r.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showBase(+r.dataset.bi); } };
+});
+
+// ---------- activity feed ----------
+const F = D.feed || { since: null, events: [] };
+const tzOpt = D.tz ? { timeZone: D.tz } : {};
+const fmtDay = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...tzOpt });
+const fmtTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', ...tzOpt });
+const CHART_SVG = `<svg viewBox="-12 -12 24 24"><circle r="9" fill="#1d3a40" stroke="#5ec7d6" stroke-width="2"/><path d="M0-7 2.5 0 0 7-2.5 0Z" fill="#5ec7d6"/></svg>`;
+const FEED_ICON = { boss: SVG.boss, newbase: OSVG.base, build: OSVG.base, death: GSVG, recovered: GSVG, portal: OSVG.portal,
+  pins: SVG.dot, crossed: SVG.dot.replace('</svg>', XMARK + '</svg>'), charted: CHART_SVG, ship: OSVG.ship, demolish: SVG.hammer };
+function feedItem(e) {
+  const go = e.x != null || (e.cells && e.cells.length) || (e.marks && e.marks.length);
+  return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
+    <span>${esc(e.text)}<span class="when">Day ${e.day} · ${fmtTime.format(new Date(e.t * 1000))}</span></span></div>`;
+}
+const evById = {}; F.events.forEach(e => evById[e.id] = e);
+function focusEvent(e) {
+  const pts = [];
+  if (e.x != null) pts.push(toLL(e.x, e.z));
+  (e.cells || []).forEach(c => pts.push(toLL(c[0], c[1])));
+  (e.marks || []).forEach(m => pts.push(toLL(m[0], m[1])));
+  (e.line || []).forEach(m => pts.push(toLL(m[0], m[1])));
+  if (!pts.length) return;
+  if (narrow()) setCollapsed(true);
+  if (!layerOn.recent && recentCount) document.getElementById('l-recent').click();
+  const bb = L.latLngBounds(pts);
+  const fast = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (pts.length === 1 || bb.getNorthEast().distanceTo(bb.getSouthWest()) < 0.5) map.flyTo(bb.getCenter(), Math.max(map.getZoom(), 5), { duration: fast ? 0 : 0.8 });
+  else map.flyToBounds(bb.pad(0.3), { maxZoom: 5.5, duration: fast ? 0 : 0.8, paddingTopLeft: narrow() ? [0, 0] : [340, 0] });
+}
+function wireFeedItems(root) {
+  root.querySelectorAll('.fi.go').forEach(el => {
+    const e = evById[el.dataset.ev];
+    el.onclick = () => focusEvent(e);
+    el.onkeydown = k => { if (k.key === 'Enter' || k.key === ' ') { k.preventDefault(); focusEvent(e); } };
+  });
+}
+const feedBox = document.getElementById('feedbody');
+(function renderFeed() {
+  const since = F.since ? `${fmtDay.format(new Date(F.since * 1000))}, ${fmtTime.format(new Date(F.since * 1000))}` : null;
+  let html = `<section class="cs"><h2>Activity</h2><div class="sub">What changed in the world${since ? ` since ${since}` : ''}. The server saves about every 30 minutes and the map checks hourly.</div>`;
+  if (!F.events.length) {
+    html += `<div class="empty-feed">${since ? 'Nothing has happened since the feed started.' : 'The feed starts with the next update.'} New building, deaths, pins, voyages, portal links and newly charted ground will show up here.</div>`;
+  } else {
+    let last = '';
+    F.events.forEach(e => {
+      const d = fmtDay.format(new Date(e.t * 1000));
+      if (d !== last) { html += `<div class="fday">${d}</div>`; last = d; }
+      html += feedItem(e);
+    });
+  }
+  feedBox.innerHTML = html + '</section>';
+  wireFeedItems(feedBox);
+})();
+
+// Recent layer: what changed in the last 7 days, fading with age
+const recentLayer = L.layerGroup();
+const WEEK = 7 * 86400, nowS = Date.now() / 1000;
+const RC = { build: '#a6e35f', newbase: '#ffd35c', death: '#ff5a4e', recovered: '#b8b0a2', portal: '#b58cff',
+  pins: '#fbf6ea', crossed: '#ff5a4e', charted: '#5ec7d6', ship: '#ffb347', demolish: '#ff8a3d', boss: '#ffd35c' };
+let recentCount = 0;
+F.events.filter(e => nowS - e.t < WEEK).forEach(e => {
+  const a = Math.max(0.3, 1 - (nowS - e.t) / WEEK), c = RC[e.kind] || '#fff';
+  let any = false;
+  (e.cells || []).forEach(([x, z]) => { any = true;
+    recentLayer.addLayer(L.rectangle([toLL(x - 24, z - 24), toLL(x + 24, z + 24)], { renderer: canvas, stroke: false, fillColor: c, fillOpacity: 0.28 * a, interactive: false })); });
+  (e.pts || []).forEach(([x, z]) => { any = true;
+    recentLayer.addLayer(L.circleMarker(toLL(x, z), { renderer: canvas, radius: 3, stroke: false, fillColor: c, fillOpacity: 0.9 * a, interactive: false })); });
+  (e.marks || []).forEach(([x, z]) => { any = true;
+    recentLayer.addLayer(L.circleMarker(toLL(x, z), { radius: 13, color: c, weight: 2.5, opacity: a, fill: false, interactive: false })); });
+  if (e.line) { any = true;
+    recentLayer.addLayer(L.polyline(e.line.map(([x, z]) => toLL(x, z)), { color: c, weight: 3, opacity: 0.9 * a, dashArray: '6 6' })
+      .bindPopup(`<div class="pop"><h3>${esc(e.text)}</h3><div class="k">Day ${e.day}</div></div>`)); }
+  if (e.x != null && !e.pts && !e.cells) { any = true;
+    recentLayer.addLayer(L.circleMarker(toLL(e.x, e.z), { radius: 16, color: c, weight: 3, opacity: a, fillColor: c, fillOpacity: 0.12 * a })
+      .bindPopup(`<div class="pop"><h3>${esc(e.text)}</h3><div class="k">Day ${e.day}</div></div>`)); }
+  if (any) recentCount++;
+});
+addLayerChip('recent', 'Recent', `<svg viewBox="-12 -12 24 24"><circle r="8" fill="none" stroke="#a6e35f" stroke-width="2.5"/><circle r="3" fill="#a6e35f"/></svg>`, recentCount, recentLayer);
+
+// ---------- tabs ----------
+const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', base: 'basebody' };
+let currentTab = 'map';
+function showTab(name) {
+  currentTab = name;
+  Object.entries(TABS).forEach(([k, id]) => { document.getElementById(id).hidden = k !== name; });
+  ['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
+  if (narrow() && panel.classList.contains('collapsed')) setCollapsed(false);
+  if (name !== 'base') { try { localStorage.setItem('vkw-tab', name); } catch (e) {} }
+}
+['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
 // ---------- panel ----------
 document.getElementById('stats').innerHTML =
   `Day <b>${D.day}</b> · <b>${D.km2} km²</b> charted · <b>${D.pins.length}</b> pins · as of ${D.asOf}`;
@@ -605,7 +776,7 @@ function setCollapsed(c) {
 }
 tog.onclick = () => setCollapsed(!panel.classList.contains('collapsed'));
 if (narrow()) setCollapsed(true);
-try { if (localStorage.getItem('vkw-tab') === 'clan') showTab(true); } catch (e) {}
+try { const saved = localStorage.getItem('vkw-tab'); if (saved === 'clan' || saved === 'feed') showTab(saved); } catch (e) {}
 if (narrow()) setCollapsed(true);
 L.DomEvent.disableClickPropagation(panel);
 L.DomEvent.disableScrollPropagation(panel);
