@@ -94,13 +94,13 @@ jobs:
           cp worldgen/dump.rs vegvisr/web/crates/worldgen/examples/dump.rs
           cd vegvisr/web/crates/worldgen && cargo build --release --example dump
 
-      - name: Load activity feed state
+      - name: Load activity feed and timelapse state
         if: steps.check.outputs.changed == 'true'
         run: |
           mkdir -p state
           if git fetch -q --depth 1 origin data 2>/dev/null; then
-            for f in snapshot.json.gz feed.json; do git show "FETCH_HEAD:$f" > "state/$f" || rm -f "state/$f"; done
-            echo "loaded previous snapshot"
+            git archive FETCH_HEAD | tar -x -C state
+            echo "loaded previous state: $(ls state | tr '\n' ' ')"
           else
             echo "no data branch yet: this run records the starting point, the feed starts empty"
           fi
@@ -109,14 +109,14 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         run: python scripts/build_site.py build world vegvisr/web/crates/worldgen/target/release/examples/dump site state
 
-      - name: Save activity feed state
+      - name: Save activity feed and timelapse state
         if: steps.check.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           cd state
           git init -q -b data
-          git add snapshot.json.gz feed.json
+          git add -A
           git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Activity feed state $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data

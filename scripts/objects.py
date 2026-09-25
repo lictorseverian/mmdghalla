@@ -151,7 +151,7 @@ def state(world_dir):
 
 def extract(world_dir, gen, files, pins):
     N = names()
-    portals, ships, beds, pieces, tombs, chests = [], [], [], [], [], []
+    portals, ships, beds, pieces, tombs, chests, hives = [], [], [], [], [], [], []
     ids = {}                                                     # player id -> character name
     for f in files:
         b = open(f, 'rb').read()
@@ -167,13 +167,16 @@ def extract(world_dir, gen, files, pins):
                 portals.append(dict(tag=s.get(K_TAG, '').strip(), x=round(x, 1), z=round(z, 1)))
             elif name in SHIPS:
                 lost = y < -50 or math.hypot(x, z) > 10500
-                ships.append(dict(kind=SHIPS[name], x=round(x, 1), y=round(y, 1), z=round(z, 1), lost=lost))
+                ships.append(dict(kind=SHIPS[name], x=round(x, 1), y=round(y, 1), z=round(z, 1), lost=lost,
+                                  _by=fields.get('l', {}).get(K_CREATOR, 0)))
             l = fields.get('l', {})
             if name == 'bed' and s.get(K_OWNER_NAME):
                 beds.append(dict(owner=s[K_OWNER_NAME], x=round(x, 1), z=round(z, 1)))
                 if l.get(K_OWNER):
                     ids[l[K_OWNER]] = s[K_OWNER_NAME]
             creator = l.get(K_CREATOR, 0)
+            if name == 'piece_beehive' and creator:
+                hives.append(creator)
             if creator:
                 pieces.append((x, z, material(name), name, creator, y))
             blob = fields.get('b', {}).get(K_ITEMS)
@@ -197,11 +200,14 @@ def extract(world_dir, gen, files, pins):
     base_details(bases, ids, chests, pins, tombs)
     who = lambda pid: ids.get(pid, 'Unknown viking')
     raw = dict(pieces=[(round(x, 1), round(y, 1), round(z, 1), name, who(pid)) for x, z, _m, name, pid, y in pieces])
+    people = players(ids, pieces, pins, tombs, chests, bases, beds, ships, hives)
     for b in bases:
         b.pop('_ps', None)
+    for sh in ships:
+        sh.pop('_by', None)
     mat_count = collections.Counter(p[2] for p in pieces)
     return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases), raw=raw,
-                _idnames=dict(ids),
+                _idnames=dict(ids), players=people,
                 graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], items=summarise(t['items']))
                         for t in tombs],
                 pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, *_ in pieces],
@@ -336,3 +342,56 @@ def clan(ids, pieces, pins, tombs, chests, bases):
     return dict(builders=builders, cartographers=cartographers, deaths=deaths,
                 treasury=dict(chests=len(chests), stacks=sum(len(ch['items']) for ch in chests),
                               items=sum(total.values()), groups=groups))
+
+
+def players(ids, pieces, pins, tombs, chests, bases, beds, ships, hives):
+    """One profile per character name. Built only from what the world file stores; ids never leave here."""
+    who = lambda pid: ids.get(pid)
+    P = collections.defaultdict(lambda: dict(pieces=0, stone=0, wood=0, bases=[], pins=0, crossed=0, bosses_found=0,
+                                             graves=[], ships=collections.Counter(), hives=0, homes=[],
+                                             crafted=collections.Counter(), crafted_total=0))
+    for x, z, mat, _n, pid, *_ in pieces:
+        n = who(pid)
+        if not n:
+            continue
+        P[n]['pieces'] += 1
+        if mat == 'stone':
+            P[n]['stone'] += 1
+        elif mat in ('wood', 'darkwood'):
+            P[n]['wood'] += 1
+    for bi, b in enumerate(bases):
+        for n, c in b.get('builders', []):
+            if n in P or n in ids.values():
+                P[n]['bases'].append([bi, c])
+    for p in pins:
+        n = who(p.get('owner'))
+        if n:
+            P[n]['pins'] += 1; P[n]['crossed'] += int(p['checked']); P[n]['bosses_found'] += int(p['type'] == 9)
+    for t in tombs:
+        P[t['owner']]['graves'].append([t['x'], t['z'], t['day']])
+    for sh in ships:
+        n = who(sh.get('_by'))
+        if n:
+            P[n]['ships'][sh['kind']] += 1
+    for h in hives:
+        n = who(h)
+        if n:
+            P[n]['hives'] += 1
+    for b in beds:
+        home = next((i for i, base in enumerate(bases)
+                     if math.hypot(b['x'] - base['x'], b['z'] - base['z']) <= base['r'] + 5), None)
+        P[b['owner']]['homes'].append([b['x'], b['z'], home])
+    for inv in [c['items'] for c in chests] + [t['items'] for t in tombs]:
+        for it in inv:
+            if it.get('crafter') and it['prefab']:
+                P[it['crafter']]['crafted'][item_name(it['prefab'])] += 1
+                P[it['crafter']]['crafted_total'] += 1
+    out = []
+    for n, r in P.items():
+        r['bases'].sort(key=lambda bc: -bc[1])
+        r['ships'] = [[k, v] for k, v in r['ships'].most_common()]
+        r['crafted'] = [[k, v] for k, v in r['crafted'].most_common(12)]
+        r['graves'].sort(key=lambda g: -g[2])
+        out.append(dict(name=n, **r))
+    out.sort(key=lambda r: -(r['pieces'] + 5 * r['pins'] + r['crafted_total']))
+    return out

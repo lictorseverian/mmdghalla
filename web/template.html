@@ -138,6 +138,8 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
   #panel.collapsed .body, #panel.collapsed .foot { display: none; }
   #coords { display: none; }
   #scale { bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+  body.tl-on #scale { display: none; }
+  .vk img.portrait { width: 56px; height: 56px; }
 }
 .bosses { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
 .boss {
@@ -200,7 +202,7 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .linkbtn:focus-visible, .back:focus-visible, .fi:focus-visible, .brow:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 .back { justify-self: start; background: none; border: none; color: var(--muted); font: 700 12px var(--body); letter-spacing: .08em; text-transform: uppercase; padding: 0; cursor: pointer; }
 .back:hover { color: var(--ink); }
-#basebody, #feedbody { overflow-y: auto; padding-bottom: 12px; }
+#basebody, #feedbody, #playerbody { overflow-y: auto; padding-bottom: 12px; }
 .bh { padding: 14px 18px 0; display: grid; gap: 4px; }
 .bh h2 { margin: 4px 0 0; font: 400 26px var(--display); line-height: 1.05; text-wrap: balance; }
 .facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0 2px; }
@@ -224,6 +226,37 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .fi.fboss { background: #2e2413; }
 .fi.fboss > span { color: var(--gold); font-weight: 700; }
 .empty-feed { color: var(--muted); line-height: 1.5; font-size: 14px; margin-top: 6px; }
+.vikings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px; }
+.vk { display: grid; justify-items: center; gap: 5px; text-align: center; cursor: pointer; padding: 6px 2px; border-radius: 8px; background: none; border: none; color: var(--ink); font: 700 12.5px var(--body); }
+.vk:hover { background: #2a251e; }
+.vk:focus-visible, [data-player]:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.vk span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; border: 2px solid #5a4d39; display: block; }
+.vk img.portrait { width: 64px; height: 64px; }
+[data-player] { cursor: pointer; }
+.lbr .n[data-player]:hover { text-decoration: underline; text-decoration-color: #7d6d53; }
+.ph { padding: 14px 18px 0; display: grid; justify-items: center; gap: 8px; text-align: center; }
+.ph .back { justify-self: start; }
+.ph img.portrait { width: 148px; height: 148px; border-width: 3px; }
+.ph h2 { margin: 0; font: 400 28px var(--display); }
+.facts.four { grid-template-columns: repeat(4, 1fr); width: 100%; }
+.facts.four .fact { padding: 7px 6px; text-align: center; }
+.facts.four .fact b { font-size: 16px; }
+.line { font-size: 14px; line-height: 1.45; }
+.plink { color: #e8c98c; cursor: pointer; text-decoration: underline; text-decoration-color: #6b5a3f; background: none; border: none; font: inherit; padding: 0; }
+#tl {
+  position: absolute; z-index: 950; left: 50%; transform: translateX(-50%);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); width: min(560px, calc(100% - 32px));
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; align-items: center;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px;
+  box-shadow: 0 10px 40px rgba(0,0,0,.45);
+}
+#tl button { width: 36px; height: 36px; border-radius: 50%; border: 1px solid #5a4d39; background: var(--chip-on); color: var(--ink); font-size: 14px; cursor: pointer; }
+#tl button:disabled { opacity: .4; cursor: default; }
+#tl input { width: 100%; accent-color: var(--gold); }
+#tl .tlt { grid-column: 1 / -1; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
+#tl .tlt span { color: var(--muted); }
+.tl-img { filter: blur(2px); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -263,11 +296,17 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
   <div class="body" id="clanbody" role="tabpanel" aria-labelledby="tab-clan" hidden></div>
   <div class="body" id="feedbody" role="tabpanel" aria-labelledby="tab-feed" hidden></div>
   <div class="body" id="basebody" role="region" aria-label="Base" hidden></div>
+  <div class="body" id="playerbody" role="region" aria-label="Viking" hidden></div>
   <div class="foot">Everything recorded at the cartography tables. Unrecorded ground stays under fog. Boss sites read from runestones show through it, the same as in game. Bases, portals and ships are read from the world itself. Coordinates are in-game x, z.</div>
 </section>
 
 <div id="scale"><span id="scale-t">1 km</span><div class="bar" id="scale-b"></div></div>
 <div id="coords"></div>
+<div id="tl" hidden role="group" aria-label="Exploration timelapse">
+  <button type="button" id="tl-play" aria-label="Play timelapse">▶</button>
+  <input type="range" id="tl-range" min="0" max="0" value="0" aria-label="Timelapse day">
+  <div class="tlt" id="tl-text"></div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script>
@@ -320,7 +359,7 @@ L.tileLayer('tiles/{z}/{x}/{y}.webp', {
 }).addTo(map);
 
 const allLL = D.pins.map(p => toLL(p.x, p.z));
-const outer = imgBounds.extend(L.latLngBounds(allLL)).pad(0.15);
+const outer = L.latLngBounds(imgBounds.getSouthWest(), imgBounds.getNorthEast()).extend(L.latLngBounds(allLL)).pad(0.15);
 map.setMaxBounds(outer);
 
 const narrow = () => window.matchMedia('(max-width: 640px)').matches;
@@ -527,7 +566,7 @@ const clanBox = document.getElementById('clanbody');
 const nf = n => n.toLocaleString('en-US');
 function board(rows, val, segs, meta) {
   const max = Math.max(1, ...rows.map(val));
-  return `<div class="lb">${rows.map(r => `<div class="lbr"><span class="n">${esc(r.name)}</span><span class="v">${nf(val(r))}</span>
+  return `<div class="lb">${rows.map(r => `<div class="lbr"><span class="n" data-player="${esc(r.name)}" tabindex="0" role="link">${esc(r.name)}</span><span class="v">${nf(val(r))}</span>
     <span class="bar">${segs(r).map(([v, c]) => `<i style="width:${(100 * v / max).toFixed(2)}%;background:${c}"></i>`).join('')}</span>
     <span class="meta">${meta(r)}</span></div>`).join('')}</div>`;
 }
@@ -590,7 +629,7 @@ function showBase(i) {
       </div>
     </div>
     <section class="cs"><h2>Built by</h2>
-      <div class="lb">${b.builders.map(([n, c]) => `<div class="lbr"><span class="n">${esc(n)}</span><span class="v">${nf(c)}</span>
+      <div class="lb">${b.builders.map(([n, c]) => `<div class="lbr"><span class="n" data-player="${esc(n)}" tabindex="0" role="link">${esc(n)}</span><span class="v">${nf(c)}</span>
         <span class="bar"><i style="width:${(100 * c / top).toFixed(2)}%;background:#c08a50"></i></span></div>`).join('')}</div>
     </section>
     ${b.beds.length ? `<section class="cs"><h2>Beds</h2><div class="chips">${b.beds.map(n => `<span>${esc(n)}</span>`).join('')}</div></section>` : ''}
@@ -606,7 +645,7 @@ function showBase(i) {
     </section>`;
   document.getElementById('base-back').onclick = () => showTab(returnTab);
   wireFeedItems(baseBox);
-  if (!['base'].includes(currentTab)) returnTab = currentTab;
+  if (!['base', 'player'].includes(currentTab)) returnTab = currentTab;
   showTab('base');
   baseBox.scrollTop = 0;
   map.flyTo(toLL(b.x, b.z), Math.max(map.getZoom(), b.r > 60 ? 5 : 5.5), { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
@@ -702,15 +741,175 @@ F.events.filter(e => nowS - e.t < WEEK).forEach(e => {
 });
 addLayerChip('recent', 'Recent', `<svg viewBox="-12 -12 24 24"><circle r="8" fill="none" stroke="#a6e35f" stroke-width="2.5"/><circle r="3" fill="#a6e35f"/></svg>`, recentCount, recentLayer);
 
+
+// ---------- vikings: portraits and profiles ----------
+const PLAYERS = D.players || [];
+const PORTRAITS = D.portraits || {};
+const normName = n => String(n).toLowerCase().split(/\s+/).filter(Boolean).join(' ');
+const hashStr = s => { let h = 7; for (const ch of s) h = (h * 31 + ch.codePointAt(0)) >>> 0; return h; };
+const _defaults = {};
+function defaultPortrait(name) {
+  if (_defaults[name]) return _defaults[name];
+  const h = hashStr(name) % 360;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+    <rect width="100" height="100" fill="hsl(${h},22%,24%)"/>
+    <path d="M8 100C12 78 30 70 50 70S88 78 92 100Z" fill="hsl(${h},18%,16%)"/>
+    <circle cx="50" cy="52" r="17" fill="hsl(${(h + 20) % 360},22%,62%)"/>
+    <path d="M34 58Q50 92 66 58Q58 66 50 66Q42 66 34 58Z" fill="hsl(${(h + 30) % 360},45%,42%)"/>
+    <path d="M31 50A19 19 0 0 1 69 50L69 53L31 53Z" fill="#b9b1a3"/>
+    <path d="M47.5 40H52.5V62H47.5Z" fill="#8f877a"/>
+    <path d="M32 47Q18 42 19 22Q25 38 37 41Z" fill="#e8dcc0"/>
+    <path d="M68 47Q82 42 81 22Q75 38 63 41Z" fill="#e8dcc0"/>
+  </svg>`;
+  return (_defaults[name] = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
+}
+const portraitSrc = name => PORTRAITS[normName(name)] || defaultPortrait(name);
+const portrait = name => `<img class="portrait" src="${esc(portraitSrc(name))}" data-fallback="${esc(name)}" alt="Portrait of ${esc(name)}" loading="lazy">`;
+// a listed file that fails to load on the site falls back to the drawing
+document.addEventListener('error', e => {
+  const img = e.target;
+  if (img && img.tagName === 'IMG' && img.dataset.fallback && !img.src.startsWith('data:')) img.src = defaultPortrait(img.dataset.fallback);
+}, true);
+
+const playerBox = document.getElementById('playerbody');
+const plural = (n, one, many) => `${nf(n)} ${n === 1 ? one : (many || one + 's')}`;
+function showPlayer(name) {
+  const p = PLAYERS.find(q => normName(q.name) === normName(name));
+  if (!p) return;
+  const recent = (D.feed.events || []).filter(e => e.who && normName(e.who) === normName(p.name)).slice(0, 12);
+  const homes = [...new Set(p.homes.map(h => h[2] != null ? h[2] : -1))];
+  const baseLink = i => i >= 0 ? `<button class="plink" type="button" data-bi="${i}">${esc(baseTitle(O.bases[i]))}</button>` : 'a spot in the wild';
+  const shipsTxt = p.ships.map(([k, n]) => plural(n, k.toLowerCase())).join(', ');
+  playerBox.innerHTML = `
+    <div class="ph"><button class="back" type="button" id="player-back">← Back</button>
+      ${portrait(p.name)}
+      <h2>${esc(p.name)}</h2>
+      <div class="facts four">
+        <div class="fact"><b>${nf(p.pieces)}</b><span>pieces</span></div>
+        <div class="fact"><b>${nf(p.pins)}</b><span>pins</span></div>
+        <div class="fact"><b>${nf(p.crafted_total)}</b><span>crafted</span></div>
+        <div class="fact"><b>${nf(p.graves.length)}</b><span>graves</span></div>
+      </div>
+    </div>
+    ${homes.length ? `<section class="cs"><h2>Sleeps at</h2><div class="line">${homes.map(baseLink).join(' · ')}</div></section>` : ''}
+    ${p.bases.length ? `<section class="cs"><h2>Built</h2><div class="brows">${p.bases.filter(([, c]) => c >= 3).map(([bi, c]) =>
+        `<div class="brow" tabindex="0" data-bi="${bi}"><span>${esc(baseTitle(O.bases[bi]))}</span><span>${plural(c, 'piece')}</span></div>`).join('')}</div>
+      <div class="sub" style="margin-top:6px">${p.pieces ? `${Math.round(100 * p.stone / p.pieces)}% stone, ${Math.round(100 * p.wood / p.pieces)}% wood.` : ''}</div></section>` : ''}
+    ${p.pins || shipsTxt || p.hives ? `<section class="cs"><h2>Out in the world</h2><div class="line">${[
+        p.pins ? `Recorded ${plural(p.pins, 'pin')} at the tables${p.crossed ? `, crossed off ${nf(p.crossed)}` : ''}${p.bosses_found ? `, marked ${plural(p.bosses_found, 'boss', 'bosses')}` : ''}.` : '',
+        shipsTxt ? `Built ${shipsTxt}.` : '',
+        p.hives ? `Keeps ${plural(p.hives, 'beehive')}.` : ''].filter(Boolean).join(' ')}</div></section>` : ''}
+    ${p.crafted.length ? `<section class="cs"><h2>Their handiwork</h2><div class="sub">Crafted items still in the clan's chests or in graves.</div>
+      <div class="chips">${p.crafted.map(([n, c]) => `<span>${esc(n)}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div></section>` : ''}
+    ${p.graves.length ? `<section class="cs"><h2>Graves</h2><ul class="graves">${p.graves.map(g => {
+        const i = O.graves.findIndex(q => Math.abs(q.x - g[0]) < 0.2 && Math.abs(q.z - g[1]) < 0.2);
+        return `<li class="grave" tabindex="0" data-gi="${i}">${GSVG}<span>${esc(placeName({ x: g[0], z: g[1] }))}</span><span class="d">day ${g[2]}</span></li>`;
+      }).join('')}</ul></section>` : ''}
+    ${recent.length ? `<section class="cs"><h2>Recent activity</h2><div>${recent.map(feedItem).join('')}</div></section>` : ''}`;
+  document.getElementById('player-back').onclick = () => showTab(returnTab);
+  playerBox.querySelectorAll('[data-bi]').forEach(el => {
+    const go = () => showBase(+el.dataset.bi);
+    el.onclick = go;
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+  playerBox.querySelectorAll('[data-gi]').forEach(el => {
+    const m = graveMarkers[+el.dataset.gi];
+    if (!m) return;
+    const go = () => { if (!layerOn.graves) document.getElementById('l-graves').click(); if (narrow()) setCollapsed(true);
+      map.flyTo(m.getLatLng(), Math.max(map.getZoom(), 4.5), { duration: 0.8 }); map.once('moveend', () => m.openPopup()); };
+    el.onclick = go;
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
+  });
+  wireFeedItems(playerBox);
+  if (!['base', 'player'].includes(currentTab)) returnTab = currentTab;
+  showTab('player');
+  playerBox.scrollTop = 0;
+}
+// any name marked data-player anywhere in the panel opens that profile
+document.getElementById('panel').addEventListener('click', e => { const el = e.target.closest('[data-player]'); if (el) showPlayer(el.dataset.player); });
+document.getElementById('panel').addEventListener('keydown', e => {
+  const el = e.target.closest && e.target.closest('[data-player]');
+  if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); showPlayer(el.dataset.player); }
+});
+if (PLAYERS.length) {
+  clanBox.insertAdjacentHTML('afterbegin', `<section class="cs"><h2>Vikings</h2><div class="sub">Tap someone for their page.</div>
+    <div class="vikings">${PLAYERS.map(p => `<button class="vk" type="button" data-player="${esc(p.name)}">${portrait(p.name)}<span>${esc(p.name)}</span></button>`).join('')}</div></section>`);
+}
+
+// ---------- exploration timelapse ----------
+const TL = D.timelapse;
+const tlBar = document.getElementById('tl'), tlRange = document.getElementById('tl-range'),
+      tlPlay = document.getElementById('tl-play'), tlText = document.getElementById('tl-text');
+let tlOverlay = null, tlPix = null, tlW = 0, tlH = 0, tlTimer = null, tlCanvas = null;
+const fmtDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', ...tzOpt });
+function tlLabel(k) {
+  const f = TL.frames[k];
+  const d = fmtDate.format(new Date(f.t * 1000));
+  if (TL.frames.length < 2) return `Recording since ${d}. <span>The first new day shows up after tomorrow's play.</span>`;
+  return (k === 0 ? `Up to ${d}` : d) + ` <span>· day ${f.day} · ${f.km2} km² charted</span>`;
+}
+function tlDraw(k) {
+  if (!tlPix) return;
+  const ctx = tlCanvas.getContext('2d'), img = ctx.createImageData(tlW, tlH), o = img.data;
+  for (let i = 0, j = 0; i < tlPix.length; i++, j += 4) {
+    const v = tlPix[i];
+    if (v === 255) continue;                      // never charted: the tiles already show fog
+    if (v > k) { o[j] = 53; o[j + 1] = 50; o[j + 2] = 42; o[j + 3] = 255; }      // not yet charted on this day
+    else if (v === k && k > 0) { o[j] = 94; o[j + 1] = 199; o[j + 2] = 214; o[j + 3] = 90; }  // charted this day
+  }
+  ctx.putImageData(img, 0, 0);
+  tlOverlay.setUrl(tlCanvas.toDataURL());
+  tlRange.value = k;
+  tlText.innerHTML = tlLabel(k);
+}
+function tlStop() { clearInterval(tlTimer); tlTimer = null; tlPlay.textContent = '▶'; tlPlay.setAttribute('aria-label', 'Play timelapse'); }
+function tlToggle(on) {
+  tlBar.hidden = !on; document.body.classList.toggle('tl-on', on);
+  if (!on) { tlStop(); if (tlOverlay) map.removeLayer(tlOverlay); return; }
+  if (!tlOverlay) {
+    tlOverlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=', imgBounds, { className: 'tl-img', interactive: false, zIndex: 250 });
+    const im = new Image();
+    im.onload = () => {
+      tlW = im.width; tlH = im.height;
+      tlCanvas = document.createElement('canvas'); tlCanvas.width = tlW; tlCanvas.height = tlH;
+      const c = tlCanvas.getContext('2d'); c.drawImage(im, 0, 0);
+      const d = c.getImageData(0, 0, tlW, tlH).data;
+      tlPix = new Uint8Array(tlW * tlH); for (let i = 0; i < tlPix.length; i++) tlPix[i] = d[i * 4];
+      tlDraw(+tlRange.value);
+    };
+    im.src = TL.png;
+  }
+  map.addLayer(tlOverlay);
+  tlRange.max = TL.frames.length - 1;
+  tlPlay.disabled = TL.frames.length < 2; tlRange.disabled = TL.frames.length < 2;
+  if (tlPix) tlDraw(+tlRange.value); else tlText.innerHTML = tlLabel(+tlRange.value || 0);
+}
+if (TL && TL.frames && TL.frames.length) {
+  tlRange.value = TL.frames.length - 1;
+  tlRange.oninput = () => { tlStop(); tlDraw(+tlRange.value); };
+  tlPlay.onclick = () => {
+    if (tlTimer) return tlStop();
+    let k = +tlRange.value >= TL.frames.length - 1 ? 0 : +tlRange.value;
+    tlDraw(k);
+    tlPlay.textContent = '❚❚'; tlPlay.setAttribute('aria-label', 'Pause timelapse');
+    tlTimer = setInterval(() => { k++; if (k >= TL.frames.length) return tlStop(); tlDraw(k); }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 1500 : 700);
+  };
+  const tb = document.createElement('button');
+  tb.type = 'button'; tb.className = 'chip'; tb.id = 'l-timelapse'; tb.setAttribute('aria-pressed', 'false');
+  tb.innerHTML = `${CHART_SVG}<span>Timelapse</span><span>${TL.frames.length}d</span>`;
+  tb.onclick = () => { const on = tb.getAttribute('aria-pressed') !== 'true'; tb.setAttribute('aria-pressed', String(on)); tlToggle(on); };
+  lbox.appendChild(tb);
+}
+
 // ---------- tabs ----------
-const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', base: 'basebody' };
+const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', base: 'basebody', player: 'playerbody' };
 let currentTab = 'map';
 function showTab(name) {
   currentTab = name;
   Object.entries(TABS).forEach(([k, id]) => { document.getElementById(id).hidden = k !== name; });
   ['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
   if (narrow() && panel.classList.contains('collapsed')) setCollapsed(false);
-  if (name !== 'base') { try { localStorage.setItem('vkw-tab', name); } catch (e) {} }
+  if (!['base', 'player'].includes(name)) { try { localStorage.setItem('vkw-tab', name); } catch (e) {} }
 }
 ['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
 // ---------- panel ----------

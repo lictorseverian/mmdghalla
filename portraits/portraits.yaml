@@ -1,0 +1,19 @@
+# Character portraits for the player profiles on the map.
+#
+# Put the image files (jpg, png or webp) in this folder, next to this file,
+# and list them below as   Character name: file.jpg
+#
+# - Names are matched ignoring upper/lower case and extra spaces,
+#   so "Erick tHe Red" finds Erick ThE ReD.
+# - A name that isn't listed, a file that's missing or an image that can't
+#   be read just shows the default drawing. Nothing breaks.
+# - Images are resized to 512 px on the long side when the map is built.
+
+Cilia: cilia.jpg
+Ivar Ivarson: ivar.jpg
+Erick ThE ReD: erick.jpg
+Pupo: pupo.jpg
+Pimenta: pimenta.jpg
+Bored Boris: boris.jpg
+Marlon: marlon.jpg
+Lorota: lorota.jpg

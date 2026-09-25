@@ -9,14 +9,14 @@
 Terrain comes from vegvisr's Rust port of Valheim's world generator (the `dump` binary),
 only for the explored bounding box. Unexplored ground is fogged.
 """
-import datetime, json, math, os, shutil, subprocess, sys, tempfile
+import datetime, json, math, os, re, shutil, subprocess, sys, tempfile
 from zoneinfo import ZoneInfo
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import vkw, objects, feed
+import vkw, objects, feed, timelapse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MPP, TILE, NATIVE_Z, MARGIN = 2.0, 512, 5, 24
@@ -98,6 +98,46 @@ def write_tiles(im, out):
     return count
 
 
+def norm_name(n):
+    return ' '.join(str(n).lower().split())
+
+
+def load_portraits(out):
+    """portraits/portraits.yaml -> {normalised name: 'portraits/<slug>.webp'}.
+
+    Read as simple 'Name: file.jpg' lines rather than full YAML, so odd names (yes, no, 1984)
+    stay names. Anything wrong with an entry skips just that entry; the page then draws the default.
+    """
+    folder = os.path.join(ROOT, 'portraits')
+    cfg = os.path.join(folder, 'portraits.yaml')
+    found = {}
+    if not os.path.isfile(cfg):
+        return found
+    for ln, line in enumerate(open(cfg, encoding='utf-8', errors='replace'), 1):
+        line = line.strip()
+        if not line or line.startswith('#') or ':' not in line:
+            continue
+        name, fn = line.split(':', 1)
+        name = name.strip().strip('"\'')
+        fn = fn.split(' #')[0].strip().strip('"\'')
+        if not name or not fn:
+            continue
+        src = os.path.join(folder, os.path.basename(fn))
+        if not os.path.isfile(src):
+            print(f'portraits: line {ln}: {os.path.basename(fn)} not found, using the default drawing for {name}', file=sys.stderr)
+            continue
+        try:
+            im = ImageOps.exif_transpose(Image.open(src)).convert('RGB')
+            im.thumbnail((512, 512))
+            slug = re.sub(r'[^a-z0-9]+', '-', norm_name(name)).strip('-') or f'p{ln}'
+            os.makedirs(os.path.join(out, 'portraits'), exist_ok=True)
+            im.save(os.path.join(out, 'portraits', slug + '.webp'), 'WEBP', quality=85)
+            found[norm_name(name)] = f'portraits/{slug}.webp'
+        except Exception as e:
+            print(f'portraits: line {ln}: could not read {os.path.basename(fn)} ({e}), using the default drawing', file=sys.stderr)
+    return found
+
+
 def build(world_dir, dump_bin, out, state_dir=None):
     info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
     saved_at = os.path.getmtime(os.path.join(world_dir, f'_main.{vkw.latest_generation(world_dir)}.ok'))
@@ -120,6 +160,12 @@ def build(world_dir, dump_bin, out, state_dir=None):
         shutil.rmtree(out)
     os.makedirs(out)
     n = write_tiles(im, out)
+    portraits = load_portraits(out)
+    tl = None
+    if state_dir:
+        fs, frames = timelapse.update(state_dir, ex, day, int(saved_at), TZ)
+        tl = timelapse.for_page(fs, frames, gx0, gx1, gy0, gy1)
+        print(f'timelapse: {len(frames)} frame(s)', file=sys.stderr)
 
     as_of = datetime.datetime.fromtimestamp(mtime, ZoneInfo(TZ)).strftime('%d %b %Y, %H:%M')
     km2 = round(float(ex.sum() * PX_M * PX_M / 1e6), 1)
@@ -128,6 +174,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
                              pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),
                 clan=objs['clan'], feed=page_feed, tz=TZ,
+                players=objs['players'], portraits=portraits, timelapse=tl,
                 pins=[dict(n=vkw.pretty(p['name']), raw=p['name'], x=round(p['x'], 1), z=round(p['z'], 1),
                            t=p['type'], c=p['checked']) for p in pins])
     tpl = open(os.path.join(ROOT, 'web', 'template.html'), encoding='utf-8').read()
