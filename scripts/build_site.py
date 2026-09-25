@@ -117,7 +117,8 @@ def build(world_dir, dump_bin, out):
     data = dict(world=info['name'], west=west, north=north, mpp=MPP, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
                 km2=km2, asOf=as_of, day=day, bosses=bosses,
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
-                             pieces=objs['pieces'], materials=objs['materials']),
+                             pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),
+                clan=objs['clan'],
                 pins=[dict(n=vkw.pretty(p['name']), raw=p['name'], x=round(p['x'], 1), z=round(p['z'], 1),
                            t=p['type'], c=p['checked']) for p in pins])
     tpl = open(os.path.join(ROOT, 'web', 'template.html'), encoding='utf-8').read()

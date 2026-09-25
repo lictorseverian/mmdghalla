@@ -1,4 +1,5 @@
-"""World objects for the map: portals, player buildings (bases), beds, ships, boss progress, day."""
+"""World objects for the map: portals, player buildings (bases), beds, ships, tombstones, chests,
+boss progress, day, and the clan stats built from them (builders, cartographers, graveyard, treasury)."""
 import collections, gzip, math, os, re, struct, zlib
 
 import vkw, zdo
@@ -6,6 +7,8 @@ import vkw, zdo
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = vkw.stable_hash
 K_CREATOR, K_TAG, K_OWNER_NAME = H('creator'), H('tag'), H('ownerName')
+K_OWNER, K_ITEMS, K_TIME_OF_DEATH = H('owner'), H('items'), H('timeOfDeath')
+TICKS_PER_DAY = 1800 * 10_000_000                           # a Valheim day is 30 min; times are .NET ticks
 
 _names = None
 
@@ -44,6 +47,78 @@ def material(name):
     return 'other'
 
 
+def items(blob):
+    """Decode a 1.0 inventory (version 109):
+    [version i32][count u16] then per item:
+    [i32 durability-ish][u8 x][u8 y][u8 ?][u8 flags]
+    [u16 quality if bit2][u16 stack if bit3][i32 variant if bit4][i64 crafter id + str name if bit5]
+    [u32 item prefab hash][u8 ?]"""
+    ver, = struct.unpack_from('<i', blob, 0)
+    if ver != 109:
+        raise ValueError(f'unknown inventory version {ver}')
+    cnt, = struct.unpack_from('<H', blob, 4)
+    p, out = 6, []
+    for _ in range(cnt):
+        p += 7
+        fl = blob[p]; p += 1
+        it = dict(quality=1, stack=1)
+        if fl & 0b10:
+            p += 4                                          # not seen in the wild; best guess
+        if fl & (1 << 2):
+            it['quality'], = struct.unpack_from('<H', blob, p); p += 2
+        if fl & (1 << 3):
+            it['stack'], = struct.unpack_from('<H', blob, p); p += 2
+        if fl & (1 << 4):
+            p += 4
+        if fl & (1 << 5):
+            it['crafter_id'], = struct.unpack_from('<q', blob, p); p += 8
+            ln = blob[p]; p += 1
+            it['crafter'] = blob[p:p + ln].decode('utf-8', 'replace'); p += ln
+        h, = struct.unpack_from('<I', blob, p); p += 5
+        it['prefab'] = names().get(h, '')
+        out.append(it)
+    if p != len(blob):
+        raise ValueError('inventory length mismatch')
+    return out
+
+
+ITEM_NAMES = {'RoundLog': 'Core wood', 'ElderBark': 'Ancient bark', 'IronScrap': 'Scrap iron',
+              'BlackMetalScrap': 'Black metal scrap', 'FineWood': 'Fine wood', 'YggdrasilWood': 'Yggdrasil wood',
+              'LeatherScraps': 'Leather scraps', 'BoneFragments': 'Bone fragments', 'SurtlingCore': 'Surtling core',
+              'WitheredBone': 'Withered bone', 'Wishbone': 'Wishbone', 'Ooze': 'Ooze', 'GreydwarfEye': 'Greydwarf eye',
+              'BlackMetal': 'Black metal', 'FlametalNew': 'Flametal', 'Coins': 'Coins', 'AmberPearl': 'Amber pearl'}
+_WORD = re.compile(r'[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+')
+
+
+def item_name(prefab):
+    if prefab in ITEM_NAMES:
+        return ITEM_NAMES[prefab]
+    base = prefab.split('_')[0]
+    words = _WORD.findall(base) or [base]
+    if words[0] in ('Arrow', 'Bolt') and len(words) > 1:           # ArrowFlint -> Flint arrow
+        words = words[1:] + [words[0]]
+    elif words[0] == 'Trophy' and len(words) > 1:                  # TrophyDeer -> Deer trophy
+        words = words[1:] + ['trophy']
+    elif words[0] in ('Sword', 'Axe', 'Mace', 'Knife', 'Spear', 'Bow', 'Shield', 'Helmet', 'Armor', 'Cape',
+                      'Atgeir', 'Pickaxe', 'Sledge', 'Battleaxe', 'Crossbow', 'Staff', 'Club', 'Torch') and len(words) > 1:
+        words = words[1:] + [words[0]]                             # SwordIron -> Iron sword
+    txt = ' '.join(words).lower()
+    return txt[:1].upper() + txt[1:]
+
+
+TREASURY_GROUPS = [
+    ('Metals', ['Copper', 'Tin', 'Bronze', 'Iron', 'Silver', 'BlackMetal', 'Flametal', 'FlametalNew',
+                'CopperOre', 'TinOre', 'IronScrap', 'IronOre', 'SilverOre', 'BlackMetalScrap', 'CopperScrap']),
+    ('Building', ['Wood', 'FineWood', 'RoundLog', 'ElderBark', 'YggdrasilWood', 'Blackwood', 'Stone', 'Flint',
+                  'Resin', 'Obsidian', 'Crystal', 'BlackMarble', 'Grausten', 'Tar', 'Chitin']),
+    ('Hides & mob drops', ['LeatherScraps', 'DeerHide', 'TrollHide', 'WolfPelt', 'LoxPelt', 'ScaleHide',
+                           'BjornHide', 'Feathers', 'BoneFragments', 'GreydwarfEye', 'Guck', 'Ooze', 'Entrails',
+                           'WitheredBone', 'SurtlingCore', 'Chain', 'Needle', 'FreezeGland', 'WolfFang',
+                           'Bloodbag', 'Root', 'AncientSeed']),
+    ('Valuables', ['Coins', 'Amber', 'AmberPearl', 'Ruby', 'SilverNecklace']),
+]
+
+
 def db2_state(world_dir, gen):
     """(defeated boss keys, in-game day) from _main.N.db2 (16-byte header, then zlib/gzip data)."""
     raw = open(os.path.join(world_dir, f'_main.{gen}.db2'), 'rb').read()
@@ -64,10 +139,11 @@ def state(world_dir):
     objs = extract(world_dir, gen, vkw.chunk_files(world_dir, gen), pins)
     keys, day = db2_state(world_dir, gen)
     bosses = [dict(key=k, name=n, done=k in keys) for k, n in BOSS_KEYS]
-    # what counts as "the map changed": tables, portals, base sizes, ships moved >25 m, bosses
+    # what counts as "the map changed": tables, portals, base sizes, ships moved >25 m, graves, bosses
     summary = dict(p=sorted((p['tag'], round(p['x']), round(p['z'])) for p in objs['portals']),
                    b=sorted((round(b['x'] / 25), round(b['z'] / 25), b['pieces'] // 10) for b in objs['bases']),
                    s=sorted((s['kind'], round(s['x'] / 25), round(s['z'] / 25)) for s in objs['ships']),
+                   g=sorted((t['owner'], round(t['x']), round(t['z'])) for t in objs['graves']),
                    k=sorted(keys))
     digest = hashlib.sha256((table_digest + json.dumps(summary)).encode()).hexdigest()
     return info, ex, pins, objs, bosses, day, digest, mtime
@@ -75,7 +151,8 @@ def state(world_dir):
 
 def extract(world_dir, gen, files, pins):
     N = names()
-    portals, ships, beds, pieces = [], [], [], []
+    portals, ships, beds, pieces, tombs, chests = [], [], [], [], [], []
+    ids = {}                                                     # player id -> character name
     for f in files:
         b = open(f, 'rb').read()
         for fl, pos, prefab, fields in zdo.records(b):
@@ -91,15 +168,37 @@ def extract(world_dir, gen, files, pins):
             elif name in SHIPS:
                 lost = y < -50 or math.hypot(x, z) > 10500
                 ships.append(dict(kind=SHIPS[name], x=round(x, 1), y=round(y, 1), z=round(z, 1), lost=lost))
+            l = fields.get('l', {})
             if name == 'bed' and s.get(K_OWNER_NAME):
                 beds.append(dict(owner=s[K_OWNER_NAME], x=round(x, 1), z=round(z, 1)))
-            if K_CREATOR in fields.get('l', {}) and fields['l'][K_CREATOR] != 0:
-                pieces.append((x, z, material(name), name))
+                if l.get(K_OWNER):
+                    ids[l[K_OWNER]] = s[K_OWNER_NAME]
+            creator = l.get(K_CREATOR, 0)
+            if creator:
+                pieces.append((x, z, material(name), name, creator))
+            blob = fields.get('b', {}).get(K_ITEMS)
+            if blob and (name == 'Player_tombstone' or creator):
+                try:
+                    inv = items(b[blob[0]:blob[0] + blob[1]])
+                except Exception:
+                    continue
+                for it in inv:
+                    if it.get('crafter_id') and it.get('crafter'):
+                        ids.setdefault(it['crafter_id'], it['crafter'])
+                if name == 'Player_tombstone':
+                    if l.get(K_OWNER) and s.get(K_OWNER_NAME):
+                        ids[l[K_OWNER]] = s[K_OWNER_NAME]
+                    tombs.append(dict(owner=s.get(K_OWNER_NAME, 'Someone'), x=round(x, 1), z=round(z, 1),
+                                      day=int(l.get(K_TIME_OF_DEATH, 0) // TICKS_PER_DAY), items=inv))
+                else:
+                    chests.append(dict(x=x, z=z, items=inv))
 
     bases = cluster(pieces, beds, portals, pins)
     mat_count = collections.Counter(p[2] for p in pieces)
-    return dict(portals=portals, ships=ships, bases=bases,
-                pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, _ in pieces],
+    return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases),
+                graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], items=summarise(t['items']))
+                        for t in tombs],
+                pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, *_ in pieces],
                 materials=[m for m, _ in MATERIALS] + ['other'], mat_count=dict(mat_count))
 
 
@@ -141,3 +240,69 @@ def cluster(pieces, beds, portals, pins, cell=24):
                           workbenches=sum(v for k, v in kinds.items() if 'workbench' in k and 'ext' not in k)))
     bases.sort(key=lambda b: -b['pieces'])
     return bases
+
+
+def summarise(inv):
+    """Inventory -> [[display name, count, quality, crafter]] with equal stacks merged, biggest first."""
+    agg = collections.OrderedDict()
+    for it in inv:
+        if not it['prefab']:
+            continue
+        k = (it['prefab'], it['quality'] if it['quality'] > 1 else 1, it.get('crafter', ''))
+        agg[k] = agg.get(k, 0) + it['stack']
+    rows = [[item_name(p), n, q, c] for (p, q, c), n in agg.items()]
+    rows.sort(key=lambda r: (-(r[2] > 1 or bool(r[3])), -r[1]))    # crafted gear first, then big stacks
+    return rows
+
+
+def clan(ids, pieces, pins, tombs, chests, bases):
+    """Per-player and group stats. Only character names leave this function, never ids."""
+    who = lambda pid: ids.get(pid, 'Unknown viking')
+
+    # builders
+    b = collections.defaultdict(lambda: dict(pieces=0, stone=0, wood=0, other=0, bases=set()))
+    base_of = {}
+    for i, base in enumerate(bases):
+        base_of[i] = base
+    for x, z, mat, _name, pid in pieces:
+        r = b[who(pid)]
+        r['pieces'] += 1
+        r['stone' if mat == 'stone' else 'wood' if mat in ('wood', 'darkwood') else 'other'] += 1
+        for i, base in base_of.items():
+            if math.hypot(x - base['x'], z - base['z']) <= base['r']:
+                r['bases'].add(i); break
+    builders = sorted(({'name': n, **{k: (len(v) if k == 'bases' else v) for k, v in r.items()}}
+                       for n, r in b.items()), key=lambda r: -r['pieces'])
+
+    # cartographers (pins recorded at the tables)
+    c = collections.defaultdict(lambda: dict(pins=0, crossed=0, bosses=0))
+    for p in pins:
+        r = c[who(p.get('owner'))]
+        r['pins'] += 1
+        r['crossed'] += int(p['checked'])
+        r['bosses'] += int(p['type'] == 9)
+    cartographers = sorted(({'name': n, **r} for n, r in c.items()), key=lambda r: -r['pins'])
+
+    # graveyard
+    d = collections.Counter(t['owner'] for t in tombs)
+    deaths = [dict(name=n, graves=k) for n, k in d.most_common()]
+
+    # treasury: player-built containers only (dungeon loot chests are the world's, not the clan's)
+    total = collections.Counter()
+    for ch in chests:
+        for it in ch['items']:
+            if it['prefab']:
+                total[it['prefab']] += it['stack']
+    groups, used = [], set()
+    for title, keys in TREASURY_GROUPS:
+        rows = [[item_name(k), total[k]] for k in keys if total.get(k)]
+        rows.sort(key=lambda r: -r[1])
+        used.update(keys)
+        if rows:
+            groups.append(dict(title=title, rows=rows))
+    rest = [[item_name(k), n] for k, n in total.most_common() if k not in used][:18]
+    if rest:
+        groups.append(dict(title='Everything else', rows=rest))
+    return dict(builders=builders, cartographers=cartographers, deaths=deaths,
+                treasury=dict(chests=len(chests), stacks=sum(len(ch['items']) for ch in chests),
+                              items=sum(total.values()), groups=groups))

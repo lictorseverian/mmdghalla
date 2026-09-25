@@ -100,13 +100,13 @@ def parse_table(d):
     cnt, = struct.unpack_from('<i', d, p); p += 4
     pins = []
     for _ in range(cnt):
-        p += 8                                            # owner id
+        owner, = struct.unpack_from('<q', d, p); p += 8   # player id of whoever placed it
         name, p = read_str(d, p)
         x, _, z = struct.unpack_from('<fff', d, p); p += 12
         typ, = struct.unpack_from('<i', d, p); p += 4
         checked = bool(d[p]); p += 1
         _author, p = read_str(d, p)                       # platform user id; never published
-        pins.append(dict(name=name, x=x, z=z, type=typ, checked=checked))
+        pins.append(dict(name=name, x=x, z=z, type=typ, checked=checked, owner=owner))
     return ex, pins
 
 
