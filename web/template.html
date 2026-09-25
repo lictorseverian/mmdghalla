@@ -9,6 +9,7 @@
 :root {
   color-scheme: dark;
   --fog: #35322a;
+  --void: #141210;
   --panel: rgba(22, 20, 17, 0.93);
   --panel-solid: #16140f;
   --ink: #efe6d2;
@@ -33,8 +34,13 @@ body {
   font-size: 15px;
   overflow: hidden;
 }
-#map { position: absolute; inset: 0; background: var(--fog); }
-.leaflet-container { font-family: var(--body); background: var(--fog); }
+#map { position: absolute; inset: 0; background: var(--void); }
+.leaflet-container { font-family: var(--body); background: var(--void); }
+.region-lbl { background: none; border: none; white-space: nowrap; font: 400 22px var(--display); letter-spacing: .08em; text-transform: uppercase; text-shadow: 0 0 6px #0b0908, 0 1px 2px #0b0908; }
+.region-lbl span { display: inline-block; transform: translate(-50%, -50%); }
+.region-lbl.ash { color: #e0805a; }
+.region-lbl.north { color: #bcd3ea; }
+.region-lbl.edge { font: 700 11px var(--body); letter-spacing: .16em; color: #9c917c; }
 .leaflet-control-attribution { display: none; }
 
 /* ---------- panel ---------- */
@@ -353,13 +359,22 @@ const map = L.map('map', {
   attributionControl: false, zoomControl: false,
 });
 L.control.zoom({ position: 'topright' }).addTo(map);
+// The whole world: a fogged disk with the edge of the world, and where the Ashlands and the Deep North begin
+map.createPane('world');
+map.getPane('world').style.zIndex = 150;
+map.getPane('world').style.pointerEvents = 'none';
+const EDGE = D.edgeR || 10500;
+const diskBounds = L.latLngBounds(toLL(-EDGE, -EDGE), toLL(EDGE, EDGE));
+L.imageOverlay('world.webp', diskBounds, { pane: 'world', interactive: false }).addTo(map);
+[['Ashlands', 'ash', 0, -9250], ['Deep North', 'north', 0, 9250], ['Edge of the world', 'edge', 0, -EDGE - 350]].forEach(([txt, cls, x, z]) =>
+  L.marker(toLL(x, z), { icon: L.divIcon({ className: 'region-lbl ' + cls, html: `<span>${txt}</span>`, iconSize: null }), interactive: false, keyboard: false, pane: 'world' }).addTo(map));
 L.tileLayer('tiles/{z}/{x}/{y}.webp', {
   tileSize: D.tile, minNativeZoom: 0, maxNativeZoom: Z, minZoom: -1, maxZoom: 7,
   noWrap: true, bounds: L.latLngBounds(L.latLng(-D.ny / S + 0.02, 0.02), L.latLng(-0.02, D.nx / S - 0.02)), keepBuffer: 4,
 }).addTo(map);
 
 const allLL = D.pins.map(p => toLL(p.x, p.z));
-const outer = L.latLngBounds(imgBounds.getSouthWest(), imgBounds.getNorthEast()).extend(L.latLngBounds(allLL)).pad(0.15);
+const outer = L.latLngBounds(diskBounds.getSouthWest(), diskBounds.getNorthEast()).extend(L.latLngBounds(allLL)).pad(0.08);
 map.setMaxBounds(outer);
 
 const narrow = () => window.matchMedia('(max-width: 640px)').matches;
@@ -525,7 +540,7 @@ const invHtml = rows => `<dl class="inv">${rows.map(([n, c, q, by]) =>
 const graveMarkers = O.graves.map(g => {
   const count = g.items.reduce((a, r) => a + r[1], 0);
   const m = L.marker(toLL(g.x, g.z), { icon: objIcon(GSVG, 20), keyboard: false, title: g.owner + "'s grave", zIndexOffset: 260 })
-    .bindPopup(`<div class="pop"><h3>${esc(g.owner)}'s grave</h3><div class="k">Died on day ${g.day} · ${esc(placeName(g))}</div>
+    .bindPopup(`<div class="pop"><h3>${esc(g.owner)}'s grave</h3><div class="k">Died on day ${g.day}${g.where ? ' ' + esc(g.where) : ''} · ${esc(placeName(g))}</div>
       <div class="x">Never recovered · ${count.toLocaleString('en-US')} item${count === 1 ? '' : 's'} still inside</div>${invHtml(g.items)}</div>`);
   gravesLayer.addLayer(m);
   return m;
@@ -589,7 +604,7 @@ clanBox.innerHTML = `
     <div class="sub">${O.graves.length} graves nobody has emptied yet. ${C.deaths.length ? `${esc(C.deaths[0].name)} leads with ${C.deaths[0].graves}.` : ''} Tap one to fly there.</div>
     <ul class="graves" id="gravelist">${graves.map((g, i) => {
       const top = g.items.slice(0, 3).map(r => r[0] + (r[1] > 1 ? ' ×' + r[1] : '')).join(', ');
-      return `<li class="grave" tabindex="0" data-i="${O.graves.indexOf(g)}">${GSVG}<span><b>${esc(g.owner)}</b><br><span class="gi">${esc(top)}${g.items.length > 3 ? '…' : ''}</span></span><span class="d">day ${g.day}</span></li>`;
+      return `<li class="grave" tabindex="0" data-i="${O.graves.indexOf(g)}">${GSVG}<span><b>${esc(g.owner)}</b><br><span class="gi">${esc(top)}${g.items.length > 3 ? '…' : ''}</span></span><span class="d">day ${g.day}${g.biome ? '<br>' + esc(g.biome) : ''}</span></li>`;
     }).join('')}</ul>
   </section>
   <section class="cs tre"><h2>Treasury</h2>
@@ -803,7 +818,8 @@ function showPlayer(name) {
       <div class="chips">${p.crafted.map(([n, c]) => `<span>${esc(n)}${c > 1 ? ' ×' + c : ''}</span>`).join('')}</div></section>` : ''}
     ${p.graves.length ? `<section class="cs"><h2>Graves</h2><ul class="graves">${p.graves.map(g => {
         const i = O.graves.findIndex(q => Math.abs(q.x - g[0]) < 0.2 && Math.abs(q.z - g[1]) < 0.2);
-        return `<li class="grave" tabindex="0" data-gi="${i}">${GSVG}<span>${esc(placeName({ x: g[0], z: g[1] }))}</span><span class="d">day ${g[2]}</span></li>`;
+        const gg = O.graves[i] || {};
+        return `<li class="grave" tabindex="0" data-gi="${i}">${GSVG}<span>${esc(placeName({ x: g[0], z: g[1] }))}${gg.where ? `<br><span class="gi">Died ${esc(gg.where)}</span>` : ''}</span><span class="d">day ${g[2]}</span></li>`;
       }).join('')}</ul></section>` : ''}
     ${recent.length ? `<section class="cs"><h2>Recent activity</h2><div>${recent.map(feedItem).join('')}</div></section>` : ''}`;
   document.getElementById('player-back').onclick = () => showTab(returnTab);
@@ -854,7 +870,7 @@ function tlDraw(k) {
   for (let i = 0, j = 0; i < tlPix.length; i++, j += 4) {
     const v = tlPix[i];
     if (v === 255) continue;                      // never charted: the tiles already show fog
-    if (v > k) { o[j] = 53; o[j + 1] = 50; o[j + 2] = 42; o[j + 3] = 255; }      // not yet charted on this day
+    if (v > k) { o[j] = 58; o[j + 1] = 55; o[j + 2] = 46; o[j + 3] = 255; }      // not yet charted on this day
     else if (v === k && k > 0) { o[j] = 94; o[j + 1] = 199; o[j + 2] = 214; o[j + 3] = 90; }  // charted this day
   }
   ctx.putImageData(img, 0, 0);

@@ -24,7 +24,8 @@ def snapshot(ex, pins, objs, bosses, day, ts):
         explored=base64.b64encode(packed).decode(),
         pins=[[p['name'], round(p['x'], 1), round(p['z'], 1), p['type'], p['checked'], owner_name(p, objs)] for p in pins],
         pieces=[list(p) for p in objs['raw']['pieces']],
-        graves=[[g['owner'], g['x'], g['z'], g['day'], sum(r[1] for r in g['items'])] for g in objs['graves']],
+        graves=[[g['owner'], g['x'], g['z'], g['day'], sum(r[1] for r in g['items']), g.get('where', '')]
+                for g in objs['graves']],
         ships=[[s['kind'], s['x'], s['z'], s['lost']] for s in objs['ships']],
         portals=[[p['tag'], p['x'], p['z']] for p in objs['portals']],
         bosses=[b['key'] for b in bosses if b['done']],
@@ -166,7 +167,8 @@ def diff(prev, cur):
     prev_g, cur_g = {gk(g): g for g in prev['graves']}, {gk(g): g for g in cur['graves']}
     for k, g in cur_g.items():
         if k not in prev_g:
-            add('death', f"{g[0]} died {P.at(g[1], g[2])}" + (f", leaving {g[4]} items in the grave" if g[4] else ''),
+            where = (g[5] + ' ') if len(g) > 5 and g[5] else ''
+            add('death', f"{g[0]} died {where}{P.at(g[1], g[2])}" + (f", leaving {g[4]} items in the grave" if g[4] else ''),
                 who=g[0], x=g[1], z=g[2])
     for k, g in prev_g.items():
         if k not in cur_g:

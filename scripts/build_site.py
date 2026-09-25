@@ -59,10 +59,12 @@ def terrain(info, west, north, nx, ny, dump_bin):
     col[water] = wc[water]; del wc, depth
     shore = water & ~ndimage.binary_erosion(water)
     col[shore] *= 0.65
-    return col
+    return col, b, h
 
 
 def fogged(col, ex, west, north):
+    """Terrain where charted, fading to transparent at the edge of the known world.
+    The fog itself is drawn once, for the whole disk, by world_disk()."""
     ny, nx = col.shape[:2]
     wx = west + (np.arange(nx) + 0.5) * MPP
     wz = north - (np.arange(ny) + 0.5) * MPP
@@ -70,27 +72,79 @@ def fogged(col, ex, west, north):
     gyi = np.clip(np.floor(wz / PX_M + GRID // 2).astype(int), 0, GRID - 1)
     m = ex[gyi[:, None], gxi[None, :]].astype(np.float32)
     m = np.clip(ndimage.gaussian_filter(m, 6) * 1.6, 0, 1)
-    rng = np.random.default_rng(7)
-    n = sum(ndimage.zoom(rng.random((ny // s + 3, nx // s + 3)).astype(np.float32), s, order=3)[:ny, :nx] / (i + 1)
-            for i, s in enumerate([320, 120, 40, 12]))
-    n = (n - n.min()) / (n.max() - n.min())
-    fog = FOG + FOGV * n[..., None]; del n
-    img = col * m[..., None] + fog * (1 - m[..., None]); del fog
-    edge = (m > 0.35) & (m < 0.55); img[edge] *= 0.75
-    return Image.fromarray((np.clip(img, 0, 1) * 255).astype(np.uint8))
+    edge = (m > 0.35) & (m < 0.55)
+    col[edge] *= 0.75
+    # dark rim: blend towards the fog colour where the fog is thickest, so the fade matches the disk
+    rgb = col * np.clip(m * 1.4, 0, 1)[..., None] + FOG * (1 - np.clip(m * 1.4, 0, 1))[..., None]
+    a = np.clip(m, 0, 1)
+    out = np.dstack([np.clip(rgb, 0, 1), a[..., None]]).reshape(ny, nx, 4)
+    return Image.fromarray((out * 255).astype(np.uint8), 'RGBA')
+
+
+WORLD_R, EDGE_R = 10000, 10500                     # playable radius, and where the world ends
+DISK_MPP = 20
+
+
+def world_disk(out):
+    """The whole world as a disk: fog, the edge of the world, and where the Ashlands and the
+    Deep North begin. Region rules are Valheim's own (WorldGenerator.IsAshlands / IsDeepNorth):
+    distance from (0, +4000) or (0, -4000) beyond 12 000 m, give or take 100 m of wobble."""
+    n = 2 * EDGE_R // DISK_MPP
+    c = (np.arange(n) + 0.5) * DISK_MPP - EDGE_R
+    x = c[None, :].astype(np.float32)
+    z = -c[:, None].astype(np.float32)
+    r = np.hypot(x, z)
+    wobble = np.sin(np.arctan2(x, z) * 20.0) * 100.0
+    ash = (np.hypot(x, z - 4000) > 12000 + wobble) & (r <= EDGE_R)
+    north = (np.hypot(x, z + 4000) > 12000 + wobble) & (r <= EDGE_R)
+    rng = np.random.default_rng(11)
+    noise = sum(ndimage.zoom(rng.random((n // s + 3, n // s + 3)).astype(np.float32), s, order=3)[:n, :n] / (i + 1)
+                for i, s in enumerate([64, 24, 8, 3]))
+    noise = (noise - noise.min()) / (noise.max() - noise.min())
+    img = FOG + FOGV * noise[..., None]
+    for mask, tint, amt, line in ((ash, (0.42, 0.13, 0.08), 0.38, (0.86, 0.38, 0.22)),
+                                  (north, (0.62, 0.70, 0.80), 0.30, (0.78, 0.88, 0.98))):
+        img[mask] = img[mask] * (1 - amt) + np.array(tint, np.float32) * amt
+        rim = mask & ~ndimage.binary_erosion(mask, iterations=2)
+        rim &= r < EDGE_R - 60
+        img[rim] = img[rim] * 0.3 + np.array(line, np.float32) * 0.7
+    ring = (r > EDGE_R - 50) & (r <= EDGE_R)
+    img[ring] = img[ring] * 0.4 + np.array([0.62, 0.57, 0.48], np.float32) * 0.6
+    alpha = np.clip((EDGE_R - r) / DISK_MPP + 0.5, 0, 1)
+    rgba = np.dstack([np.clip(img, 0, 1), alpha])
+    Image.fromarray((rgba * 255).astype(np.uint8), 'RGBA').save(os.path.join(out, 'world.webp'), 'WEBP', quality=80, method=6)
+
+
+BIOMES = {1: 'Meadows', 2: 'Swamp', 4: 'Mountains', 8: 'Black Forest', 16: 'Plains', 32: 'Ashlands',
+          64: 'Deep North', 256: 'Ocean', 512: 'Mistlands'}
+
+
+def death_places(graves, b, h, west, north):
+    """Annotate graves with where they are: 'in the Swamp, in the water' / 'at sea'."""
+    ny, nx = b.shape
+    for g in graves:
+        i, j = int((g['x'] - west) / MPP), int((north - g['z']) / MPP)
+        if not (0 <= i < nx and 0 <= j < ny):
+            continue
+        biome = BIOMES.get(int(b[j, i]), '')
+        g['biome'] = biome
+        if biome == 'Ocean':
+            g['where'] = 'at sea'
+        elif biome:
+            wet = g.get('water') or h[j, i] < 29.5
+            g['where'] = f'in the {biome}' + (', in the water' if wet else '')
 
 
 def write_tiles(im, out):
     nx, ny = im.size
-    fogrgb = tuple(int(v * 255 + 0.07 * 127) for v in FOG)
     count = 0
     for z in range(NATIVE_Z, -1, -1):
         s = 2 ** (NATIVE_Z - z)
-        lvl = im if s == 1 else im.resize((math.ceil(nx / s), math.ceil(ny / s)), Image.LANCZOS)
+        lvl = im if s == 1 else im.convert('RGBa').resize((math.ceil(nx / s), math.ceil(ny / s)), Image.LANCZOS).convert('RGBA')
         w, h = lvl.size
         for tx in range(math.ceil(w / TILE)):
             for ty in range(math.ceil(h / TILE)):
-                t = Image.new('RGB', (TILE, TILE), fogrgb)
+                t = Image.new('RGBA', (TILE, TILE), (0, 0, 0, 0))
                 t.paste(lvl.crop((tx * TILE, ty * TILE, min(w, (tx + 1) * TILE), min(h, (ty + 1) * TILE))), (0, 0))
                 d = os.path.join(out, 'tiles', str(z), str(tx)); os.makedirs(d, exist_ok=True)
                 t.save(os.path.join(d, f'{ty}.webp'), 'WEBP', quality=82, method=6)
@@ -141,12 +195,6 @@ def load_portraits(out):
 def build(world_dir, dump_bin, out, state_dir=None):
     info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
     saved_at = os.path.getmtime(os.path.join(world_dir, f'_main.{vkw.latest_generation(world_dir)}.ok'))
-    if state_dir:
-        fd = feed.update(state_dir, feed.snapshot(ex, pins, objs, bosses, day, int(saved_at)))
-        print(f"feed: {len(fd['events'])} events since {fd['since']}", file=sys.stderr)
-        page_feed = feed.for_page(fd)
-    else:
-        page_feed = dict(since=None, events=[])
     ys, xs = np.nonzero(ex)
     gx0, gx1 = int(xs.min()) - MARGIN, int(xs.max()) + MARGIN + 1
     gy0, gy1 = int(ys.min()) - MARGIN, int(ys.max()) + MARGIN + 1
@@ -155,11 +203,22 @@ def build(world_dir, dump_bin, out, state_dir=None):
     nx, ny = int((east - west) / MPP), int((north - south) / MPP)
     print(f'rendering {nx}x{ny} px at {MPP} m/px', file=sys.stderr)
 
-    im = fogged(terrain(info, west, north, nx, ny, dump_bin), ex, west, north)
+    col, biome, height = terrain(info, west, north, nx, ny, dump_bin)
+    death_places(objs['graves'], biome, height, west, north)
+    del biome, height
+    if state_dir:
+        fd = feed.update(state_dir, feed.snapshot(ex, pins, objs, bosses, day, int(saved_at)))
+        print(f"feed: {len(fd['events'])} events since {fd['since']}", file=sys.stderr)
+        page_feed = feed.for_page(fd)
+    else:
+        page_feed = dict(since=None, events=[])
+    im = fogged(col, ex, west, north)
+    del col
     if os.path.exists(out):
         shutil.rmtree(out)
     os.makedirs(out)
     n = write_tiles(im, out)
+    world_disk(out)
     portraits = load_portraits(out)
     tl = None
     if state_dir:
@@ -169,7 +228,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
 
     as_of = datetime.datetime.fromtimestamp(mtime, ZoneInfo(TZ)).strftime('%d %b %Y, %H:%M')
     km2 = round(float(ex.sum() * PX_M * PX_M / 1e6), 1)
-    data = dict(world=info['name'], west=west, north=north, mpp=MPP, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
+    data = dict(world=info['name'], west=west, north=north, mpp=MPP, edgeR=EDGE_R, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
                 km2=km2, asOf=as_of, day=day, bosses=bosses,
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
                              pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),

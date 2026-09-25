@@ -7,7 +7,7 @@ import vkw, zdo
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = vkw.stable_hash
 K_CREATOR, K_TAG, K_OWNER_NAME = H('creator'), H('tag'), H('ownerName')
-K_OWNER, K_ITEMS, K_TIME_OF_DEATH = H('owner'), H('items'), H('timeOfDeath')
+K_OWNER, K_ITEMS, K_TIME_OF_DEATH, K_IN_WATER = H('owner'), H('items'), H('timeOfDeath'), H('inWater')
 TICKS_PER_DAY = 1800 * 10_000_000                           # a Valheim day is 30 min; times are .NET ticks
 
 _names = None
@@ -192,6 +192,7 @@ def extract(world_dir, gen, files, pins):
                     if l.get(K_OWNER) and s.get(K_OWNER_NAME):
                         ids[l[K_OWNER]] = s[K_OWNER_NAME]
                     tombs.append(dict(owner=s.get(K_OWNER_NAME, 'Someone'), x=round(x, 1), z=round(z, 1),
+                                      water=bool(fields.get('i', {}).get(K_IN_WATER, 0)),
                                       day=int(l.get(K_TIME_OF_DEATH, 0) // TICKS_PER_DAY), items=inv))
                 else:
                     chests.append(dict(x=x, z=z, items=inv, creator=creator))
@@ -208,7 +209,7 @@ def extract(world_dir, gen, files, pins):
     mat_count = collections.Counter(p[2] for p in pieces)
     return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases), raw=raw,
                 _idnames=dict(ids), players=people,
-                graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], items=summarise(t['items']))
+                graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], water=t['water'], items=summarise(t['items']))
                         for t in tombs],
                 pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, *_ in pieces],
                 materials=[m for m, _ in MATERIALS] + ['other'], mat_count=dict(mat_count))
