@@ -1,0 +1,127 @@
+name: Known world map
+
+on:
+  schedule:
+    - cron: '17 * * * *'        # hourly, off the top of the hour
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if the cartography tables haven't changed
+        type: boolean
+        default: false
+
+concurrency:
+  group: known-world
+  cancel-in-progress: false
+
+env:
+  VEGVISR_SHA: 2218ae2f2c32444f175438de0c5cb0e99758810a   # pinned worldgen version
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: write              # keepalive: stops GitHub pausing the schedule after 60 idle days
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+      digest: ${{ steps.check.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -q -r requirements.txt
+
+      - name: Pull world over SFTP
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          WORLD_PATH: ${{ vars.WORLD_PATH }}
+        run: |
+          # a copy taken mid-autosave can be torn; retry a couple of times
+          for i in 1 2 3; do
+            bash scripts/fetch_world.sh && python scripts/build_site.py digest world > digest.txt && break
+            echo "attempt $i failed, retrying in 90 s"; sleep 90
+          done
+          test -s digest.txt
+
+      - name: Has the map changed?
+        id: prev
+        uses: actions/cache/restore@v4
+        with:
+          path: digest.txt
+          key: table-${{ hashFiles('digest.txt') }}
+          lookup-only: true
+
+      - id: check
+        run: |
+          echo "digest=$(cat digest.txt)" >> "$GITHUB_OUTPUT"
+          if [ "${{ steps.prev.outputs.cache-hit }}" = "true" ] && [ "${{ inputs.force }}" != "true" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"; echo "No change since last build."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Get worldgen
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: aritropaul/vegvisr
+          ref: ${{ env.VEGVISR_SHA }}
+          path: vegvisr
+
+      - name: Cache worldgen build
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            vegvisr/web/crates/worldgen/target
+          key: worldgen-${{ env.VEGVISR_SHA }}-${{ hashFiles('worldgen/dump.rs') }}
+
+      - name: Build worldgen
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          cp worldgen/dump.rs vegvisr/web/crates/worldgen/examples/dump.rs
+          cd vegvisr/web/crates/worldgen && cargo build --release --example dump
+
+      - name: Render map
+        if: steps.check.outputs.changed == 'true'
+        run: python scripts/build_site.py build world vegvisr/web/crates/worldgen/target/release/examples/dump site
+
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.check.outputs.changed == 'true'
+        with:
+          path: site
+
+      - uses: gautamkrishnar/keepalive-workflow@v2
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      # only remembered once it's live, so a failed deploy is retried next hour
+      - run: echo "${{ needs.build.outputs.digest }}" > digest.txt
+      - uses: actions/cache/save@v4
+        with:
+          path: digest.txt
+          key: table-${{ hashFiles('digest.txt') }}
