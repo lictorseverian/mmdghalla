@@ -14,7 +14,7 @@ from PIL import Image
 from scipy import ndimage
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import vkw
+import vkw, objects
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MPP, TILE, NATIVE_Z, MARGIN = 2.0, 512, 5, 24
@@ -97,7 +97,7 @@ def write_tiles(im, out):
 
 
 def build(world_dir, dump_bin, out):
-    info, ex, pins, digest, mtime = vkw.load(world_dir)
+    info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
     ys, xs = np.nonzero(ex)
     gx0, gx1 = int(xs.min()) - MARGIN, int(xs.max()) + MARGIN + 1
     gy0, gy1 = int(ys.min()) - MARGIN, int(ys.max()) + MARGIN + 1
@@ -115,7 +115,9 @@ def build(world_dir, dump_bin, out):
     as_of = datetime.datetime.fromtimestamp(mtime, ZoneInfo(TZ)).strftime('%d %b %Y, %H:%M')
     km2 = round(float(ex.sum() * PX_M * PX_M / 1e6), 1)
     data = dict(world=info['name'], west=west, north=north, mpp=MPP, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
-                km2=km2, asOf=as_of,
+                km2=km2, asOf=as_of, day=day, bosses=bosses,
+                objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
+                             pieces=objs['pieces'], materials=objs['materials']),
                 pins=[dict(n=vkw.pretty(p['name']), raw=p['name'], x=round(p['x'], 1), z=round(p['z'], 1),
                            t=p['type'], c=p['checked']) for p in pins])
     tpl = open(os.path.join(ROOT, 'web', 'template.html'), encoding='utf-8').read()
@@ -126,7 +128,9 @@ def build(world_dir, dump_bin, out):
             + tpl.replace('{{WORLD}}', info['name']).replace('/*LEAFLET_CSS*/', css).replace('/*DATA*/null', js_data)
             + '</html>\n')
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(html)
-    json.dump(dict(world=info['name'], km2=km2, pins=len(pins), asOf=as_of, digest=digest),
+    json.dump(dict(world=info['name'], km2=km2, pins=len(pins), day=day, asOf=as_of, digest=digest,
+                   bosses=[b['name'] for b in bosses if b['done']], bases=len(objs['bases']),
+                   portals=len(objs['portals'])),
               open(os.path.join(out, 'stats.json'), 'w'))
     open(os.path.join(out, '.nojekyll'), 'w').close()
     print(f'{n} tiles, {km2} km², {len(pins)} pins, as of {as_of}', file=sys.stderr)
@@ -135,7 +139,7 @@ def build(world_dir, dump_bin, out):
 if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else ''
     if cmd == 'digest' and len(sys.argv) == 3:
-        print(vkw.load(sys.argv[2])[3])
+        print(objects.state(sys.argv[2])[6])
     elif cmd == 'build' and len(sys.argv) == 5:
         build(*sys.argv[2:])
     else:
