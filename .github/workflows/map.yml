@@ -23,7 +23,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      actions: write              # keepalive: stops GitHub pausing the schedule after 60 idle days
     outputs:
       changed: ${{ steps.check.outputs.changed }}
       digest: ${{ steps.check.outputs.digest }}
@@ -103,8 +102,6 @@ jobs:
         if: steps.check.outputs.changed == 'true'
         with:
           path: site
-
-      - uses: gautamkrishnar/keepalive-workflow@v2
 
   deploy:
     needs: build
