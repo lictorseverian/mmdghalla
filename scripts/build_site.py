@@ -115,6 +115,31 @@ def world_disk(out):
     Image.fromarray((rgba * 255).astype(np.uint8), 'RGBA').save(os.path.join(out, 'world.webp'), 'WEBP', quality=80, method=6)
 
 
+def preview(out, im, west, north, bases, w=1200, h=630):
+    """A 1200x630 picture of the known world on the disk: Discord status card and link previews."""
+    from PIL import ImageDraw
+    nx, ny = im.size
+    east, south = west + nx * MPP, north - ny * MPP
+    cx, cz = (west + east) / 2, (north + south) / 2
+    span_x = max(east - west, (north - south) * w / h) * 1.08
+    s = span_x / w                                              # metres per preview pixel
+    x0, z0 = cx - w * s / 2, cz + h * s / 2
+    canvas = Image.new('RGBA', (w, h), (20, 18, 16, 255))
+    disk = Image.open(os.path.join(out, 'world.webp')).convert('RGBA')
+    box = ((x0 + EDGE_R) / DISK_MPP, (EDGE_R - z0) / DISK_MPP, (x0 + w * s + EDGE_R) / DISK_MPP, (EDGE_R - z0 + h * s) / DISK_MPP)
+    canvas.alpha_composite(disk.transform((w, h), Image.EXTENT, box, Image.BICUBIC))
+    tw, th = max(1, round(nx * MPP / s)), max(1, round(ny * MPP / s))
+    terr = im.convert('RGBa').resize((tw, th), Image.LANCZOS).convert('RGBA')
+    canvas.alpha_composite(terr, (round((west - x0) / s), round((z0 - north) / s)))
+    d = ImageDraw.Draw(canvas)
+    for b in bases:
+        if b['pieces'] >= 40:
+            px, py = (b['x'] - x0) / s, (z0 - b['z']) / s
+            r = 4 if b['pieces'] < 300 else 6
+            d.ellipse([px - r, py - r, px + r, py + r], fill=(233, 201, 140, 255), outline=(20, 16, 12, 255), width=2)
+    canvas.convert('RGB').save(os.path.join(out, 'preview.png'), optimize=True)
+
+
 BIOMES = {1: 'Meadows', 2: 'Swamp', 4: 'Mountains', 8: 'Black Forest', 16: 'Plains', 32: 'Ashlands',
           64: 'Deep North', 256: 'Ocean', 512: 'Mistlands'}
 
@@ -192,6 +217,19 @@ def load_portraits(out):
     return found
 
 
+def og_tags(world, km2, day):
+    site = os.environ.get('SITE_URL', '').strip()
+    if not site:
+        return ''
+    desc = f'Day {day} · {km2} km² charted. The known world of {world}, updated hourly from the world save.'
+    return (f'<meta property="og:title" content="{world} Known World">\n'
+            f'<meta property="og:description" content="{desc}">\n'
+            f'<meta property="og:image" content="{site}preview.png">\n'
+            '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">\n'
+            '<meta name="twitter:card" content="summary_large_image">\n'
+            '<meta name="theme-color" content="#e9bb5e">\n')
+
+
 def build(world_dir, dump_bin, out, state_dir=None):
     info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
     saved_at = os.path.getmtime(os.path.join(world_dir, f'_main.{vkw.latest_generation(world_dir)}.ok'))
@@ -219,6 +257,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
     os.makedirs(out)
     n = write_tiles(im, out)
     world_disk(out)
+    preview(out, im, west, north, objs['bases'])
     portraits = load_portraits(out)
     tl = None
     if state_dir:
@@ -241,11 +280,13 @@ def build(world_dir, dump_bin, out, state_dir=None):
     js_data = json.dumps(data, separators=(',', ':'), ensure_ascii=False).replace('</', '<\\/')
     html = ('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">\n'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">\n'
+            + og_tags(info['name'], km2, day)
             + tpl.replace('{{WORLD}}', info['name']).replace('/*LEAFLET_CSS*/', css).replace('/*DATA*/null', js_data)
             + '</html>\n')
     open(os.path.join(out, 'index.html'), 'w', encoding='utf-8').write(html)
     json.dump(dict(world=info['name'], km2=km2, pins=len(pins), day=day, asOf=as_of, digest=digest,
                    bosses=[b['name'] for b in bosses if b['done']], bases=len(objs['bases']),
+                   boss_track=[dict(name=b['name'], done=b['done']) for b in bosses], graves=len(objs['graves']),
                    portals=len(objs['portals'])),
               open(os.path.join(out, 'stats.json'), 'w'))
     open(os.path.join(out, '.nojekyll'), 'w').close()

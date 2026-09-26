@@ -9,12 +9,17 @@ on:
         description: Rebuild even if the cartography tables haven't changed
         type: boolean
         default: false
+      discord_test:
+        description: Rebuild and post a hello message plus the status card to Discord
+        type: boolean
+        default: false
 
 concurrency:
   group: known-world
   cancel-in-progress: false
 
 env:
+  SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
   VEGVISR_SHA: 2218ae2f2c32444f175438de0c5cb0e99758810a   # pinned worldgen version
 
 jobs:
@@ -65,7 +70,7 @@ jobs:
       - id: check
         run: |
           echo "digest=$(cat digest.txt)" >> "$GITHUB_OUTPUT"
-          if [ "${{ steps.prev.outputs.cache-hit }}" = "true" ] && [ "${{ inputs.force }}" != "true" ]; then
+          if [ "${{ steps.prev.outputs.cache-hit }}" = "true" ] && [ "${{ inputs.force }}" != "true" ] && [ "${{ inputs.discord_test }}" != "true" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"; echo "No change since last build."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
@@ -108,6 +113,14 @@ jobs:
       - name: Render map
         if: steps.check.outputs.changed == 'true'
         run: python scripts/build_site.py build world vegvisr/web/crates/worldgen/target/release/examples/dump site state
+
+      - name: Post to Discord
+        if: steps.check.outputs.changed == 'true'
+        continue-on-error: true           # Discord trouble never blocks the map
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID || '1547337650090807307' }}
+        run: python scripts/discord.py state site ${{ inputs.discord_test && '--test' || '' }}
 
       - name: Save activity feed and timelapse state
         if: steps.check.outputs.changed == 'true'
