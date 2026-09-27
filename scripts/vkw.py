@@ -11,6 +11,7 @@ import glob, gzip, hashlib, os, re, struct, sys
 import numpy as np
 
 GRID, PX_M = 2048, 12
+LAST_REPORT = None                                   # per-table summary from the last load()
 
 
 def stable_hash(s: str) -> int:
@@ -75,20 +76,27 @@ def chunk_files(world_dir, gen):
 
 
 def find_tables(files):
-    """Yield (file, (x, y, z), raw_blob) for every cartography table with shared map data."""
+    """Yield (file, (x, y, z), raw_blob) for every cartography table with shared map data.
+    Reads each table's own "data" byte array through the record parser, so a table that has
+    never been written to is simply skipped and nothing from a neighbouring record is picked up."""
+    import zdo
+    key_data = stable_hash('data')
+    table = struct.unpack('<I', TABLE_KEY)[0]
     for f in files:
         b = open(f, 'rb').read()
-        i = b.find(TABLE_KEY)
-        while i != -1:
-            rec = i - 14                                  # [flags u16][pos 3xf32][prefab u32]
-            flags, = struct.unpack_from('<H', b, rec)
-            pos = struct.unpack_from('<fff', b, rec + 2)
-            if flags & 0x0100 and all(abs(v) < 20000 for v in pos):
-                j = b.find(b'\x1f\x8b\x08', i, i + 400)   # the gzip'd map blob, after its int32 length
-                if j != -1:
-                    ln, = struct.unpack_from('<i', b, j - 4)
-                    yield f, pos, gzip.decompress(b[j:j + ln])
-            i = b.find(TABLE_KEY, i + 4)
+        if TABLE_KEY not in b:
+            continue
+        for fl, pos, prefab, fields in zdo.records(b):
+            if prefab != table or pos is None:
+                continue
+            arr = fields.get('b', {}).get(key_data)
+            if not arr:
+                print(f'  table at ({pos[0]:.0f}, {pos[2]:.0f}) has nothing recorded yet', file=sys.stderr)
+                continue
+            try:
+                yield f, pos, gzip.decompress(b[arr[0]:arr[0] + arr[1]])
+            except Exception as e:
+                print(f'  ! could not read the table at ({pos[0]:.0f}, {pos[2]:.0f}): {e}', file=sys.stderr)
 
 
 def parse_table(d):
@@ -119,16 +127,36 @@ def load(world_dir):
     tables = list(find_tables(files))
     if not tables:
         raise SystemExit('no cartography tables with shared map data found')
+    report = []
     for f, pos, blob in sorted(tables, key=lambda t: t[1]):
         e, p = parse_table(blob)
-        print(f'  table at ({pos[0]:.0f}, {pos[2]:.0f}): {e.sum() * PX_M * PX_M / 1e6:.1f} km², {len(p)} pins',
-              file=sys.stderr)
+        km2 = e.sum() * PX_M * PX_M / 1e6
+        print(f'  table at ({pos[0]:.0f}, {pos[2]:.0f}): {km2:.1f} km², {len(p)} pins', file=sys.stderr)
+        report.append(dict(x=round(pos[0]), z=round(pos[2]), km2=round(float(km2), 2), pins=len(p),
+                           crossed=sum(q['checked'] for q in p), only_here_km2=0.0, only_here_pins=0,
+                           _ex=e, _keys={(q['name'], round(q['x']), round(q['z']), q['type']) for q in p}))
         ex |= e; pins += p; h.update(blob); mtimes.append(os.path.getmtime(f))
-    seen, uniq = set(), []
-    for p in pins:                                        # the same pin shared at two tables
+    # the union: every pin from every table once; crossed off if it is crossed off on any table
+    merged = {}
+    for p in pins:
         k = (p['name'], round(p['x']), round(p['z']), p['type'])
-        if k not in seen:
-            seen.add(k); uniq.append(p)
+        if k in merged:
+            merged[k]['checked'] = merged[k]['checked'] or p['checked']
+        else:
+            merged[k] = dict(p)
+    uniq = list(merged.values())
+    for r in report:                                      # what each table knows that no other table does
+        others = np.zeros_like(ex)
+        other_keys = set()
+        for o in report:
+            if o is not r:
+                others |= o['_ex']; other_keys |= o['_keys']
+        r['only_here_km2'] = round(float((r['_ex'] & ~others).sum() * PX_M * PX_M / 1e6), 2)
+        r['only_here_pins'] = len(r['_keys'] - other_keys)
+    for r in report:
+        r.pop('_ex'); r.pop('_keys')
+    global LAST_REPORT
+    LAST_REPORT = dict(tables=report, union_km2=round(float(ex.sum() * PX_M * PX_M / 1e6), 2), union_pins=len(uniq))
     return info, ex, uniq, h.hexdigest(), max(mtimes)
 
 

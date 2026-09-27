@@ -261,6 +261,8 @@ def build(world_dir, dump_bin, out, state_dir=None):
     portraits = load_portraits(out)
     tl = None
     if state_dir:
+        if vkw.LAST_REPORT:
+            json.dump(vkw.LAST_REPORT, open(os.path.join(state_dir, 'tables.json'), 'w'), indent=1)
         fs, frames = timelapse.update(state_dir, ex, day, int(saved_at), TZ)
         tl = timelapse.for_page(fs, frames, gx0, gx1, gy0, gy1)
         print(f'timelapse: {len(frames)} frame(s)', file=sys.stderr)
@@ -287,6 +289,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
     json.dump(dict(world=info['name'], km2=km2, pins=len(pins), day=day, asOf=as_of, digest=digest,
                    bosses=[b['name'] for b in bosses if b['done']], bases=len(objs['bases']),
                    boss_track=[dict(name=b['name'], done=b['done']) for b in bosses], graves=len(objs['graves']),
+                   tables=len((vkw.LAST_REPORT or {}).get('tables', [])),
                    portals=len(objs['portals'])),
               open(os.path.join(out, 'stats.json'), 'w'))
     open(os.path.join(out, '.nojekyll'), 'w').close()
