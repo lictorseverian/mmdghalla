@@ -2,7 +2,9 @@ name: Known world map
 
 on:
   schedule:
-    - cron: '17 * * * *'        # hourly, off the top of the hour
+    # GitHub runs scheduled jobs "best effort" and drops many of them, so ask often;
+    # each check only lists the server's save files and stops unless there is a new save
+    - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -44,7 +46,29 @@ jobs:
           cache-dependency-path: requirements.txt
       - run: pip install -q -r requirements.txt
 
+      - name: Has the server saved since the last check?
+        id: save
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          WORLD_PATH: ${{ vars.WORLD_PATH }}
+        run: |
+          gen=$(bash scripts/latest_save.sh || echo "unknown-$(date +%s)")
+          echo "gen=$gen" >> "$GITHUB_OUTPUT"
+          echo "latest save: $gen"
+
+      - name: Seen this save already?
+        id: seen
+        uses: actions/cache/restore@v4
+        with:
+          path: .seen
+          key: save-${{ steps.save.outputs.gen }}
+          lookup-only: true
+
       - name: Pull world over SFTP
+        if: steps.seen.outputs.cache-hit != 'true' || inputs.force || inputs.discord_test
         env:
           SFTP_HOST: ${{ secrets.SFTP_HOST }}
           SFTP_PORT: ${{ secrets.SFTP_PORT }}
@@ -61,6 +85,7 @@ jobs:
 
       - name: Has the map changed?
         id: prev
+        if: steps.seen.outputs.cache-hit != 'true' || inputs.force || inputs.discord_test
         uses: actions/cache/restore@v4
         with:
           path: digest.txt
@@ -68,6 +93,7 @@ jobs:
           lookup-only: true
 
       - id: check
+        if: steps.seen.outputs.cache-hit != 'true' || inputs.force || inputs.discord_test
         run: |
           echo "digest=$(cat digest.txt)" >> "$GITHUB_OUTPUT"
           if [ "${{ steps.prev.outputs.cache-hit }}" = "true" ] && [ "${{ inputs.force }}" != "true" ] && [ "${{ inputs.discord_test }}" != "true" ]; then
@@ -133,6 +159,16 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898099+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Activity feed state $(date -u +%Y-%m-%dT%H:%MZ)"
           git push -q --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" data
+
+      - name: Remember this save
+        if: success() && steps.check.outcome == 'success'
+        run: mkdir -p .seen && echo "${{ steps.save.outputs.gen }}" > .seen/gen
+
+      - uses: actions/cache/save@v4
+        if: success() && steps.check.outcome == 'success' && !startsWith(steps.save.outputs.gen, 'unknown')
+        with:
+          path: .seen
+          key: save-${{ steps.save.outputs.gen }}
 
       - uses: actions/upload-pages-artifact@v3
         if: steps.check.outputs.changed == 'true'
