@@ -245,11 +245,17 @@ def build(world_dir, dump_bin, out, state_dir=None):
     death_places(objs['graves'], biome, height, west, north)
     del biome, height
     if state_dir:
-        fd = feed.update(state_dir, feed.snapshot(ex, pins, objs, bosses, day, int(saved_at)))
+        snap = feed.snapshot(ex, pins, objs, bosses, day, int(saved_at))
+        fd = feed.update(state_dir, snap)
         print(f"feed: {len(fd['events'])} events since {fd['since']}", file=sys.stderr)
         page_feed = feed.for_page(fd)
     else:
         page_feed = dict(since=None, events=[])
+    plain = None
+    if state_dir:                                    # fog-free terrain at 6 m/px for the timelapse
+        h3, w3 = col.shape[0] // 3, col.shape[1] // 3
+        plain = col[:h3 * 3, :w3 * 3].reshape(h3, 3, w3, 3, 3).mean(axis=(1, 3))
+        plain = Image.fromarray((np.clip(plain, 0, 1) * 255).astype(np.uint8))
     im = fogged(col, ex, west, north)
     del col
     if os.path.exists(out):
@@ -265,6 +271,9 @@ def build(world_dir, dump_bin, out, state_dir=None):
             json.dump(vkw.LAST_REPORT, open(os.path.join(state_dir, 'tables.json'), 'w'), indent=1)
         fs, frames = timelapse.update(state_dir, ex, day, int(saved_at), TZ)
         tl = timelapse.for_page(fs, frames, gx0, gx1, gy0, gy1)
+        tl.update(timelapse.objects(state_dir, snap, fd, frames, TZ))
+        plain.save(os.path.join(out, 'timelapse.webp'), 'WEBP', quality=80, method=6)
+        tl['terrain'] = 'timelapse.webp'
         print(f'timelapse: {len(frames)} frame(s)', file=sys.stderr)
 
     as_of = datetime.datetime.fromtimestamp(mtime, ZoneInfo(TZ)).strftime('%d %b %Y, %H:%M')

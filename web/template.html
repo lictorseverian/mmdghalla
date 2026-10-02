@@ -262,7 +262,7 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
 #tl input { width: 100%; accent-color: var(--gold); }
 #tl .tlt { grid-column: 1 / -1; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
 #tl .tlt span { color: var(--muted); }
-.tl-img { filter: blur(2px); }
+.tl-img { image-rendering: auto; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -368,7 +368,7 @@ const diskBounds = L.latLngBounds(toLL(-EDGE, -EDGE), toLL(EDGE, EDGE));
 L.imageOverlay('world.webp', diskBounds, { pane: 'world', interactive: false }).addTo(map);
 [['Ashlands', 'ash', 0, -9250], ['Deep North', 'north', 0, 9250], ['Edge of the world', 'edge', 0, -EDGE - 350]].forEach(([txt, cls, x, z]) =>
   L.marker(toLL(x, z), { icon: L.divIcon({ className: 'region-lbl ' + cls, html: `<span>${txt}</span>`, iconSize: null }), interactive: false, keyboard: false, pane: 'world' }).addTo(map));
-L.tileLayer('tiles/{z}/{x}/{y}.webp', {
+const tileLayer = L.tileLayer('tiles/{z}/{x}/{y}.webp', {
   tileSize: D.tile, minNativeZoom: 0, maxNativeZoom: Z, minZoom: -1, maxZoom: 7,
   noWrap: true, bounds: L.latLngBounds(L.latLng(-D.ny / S + 0.02, 0.02), L.latLng(-0.02, D.nx / S - 0.02)), keepBuffer: 4,
 }).addTo(map);
@@ -401,12 +401,14 @@ const pins = D.pins.map((p, i) => {
   m.bindPopup(`<div class="pop"><h3>${esc(p.n || 'Unnamed ' + TYPES[k].label.toLowerCase() + ' pin')}</h3>
     <div class="k">${TYPES[k].label} pin · x ${fmt(p.x)}, z ${fmt(p.z)}</div>${raw}${k === 'boss' && DEFEATED.has(p.n) ? '<div class="ok">Defeated</div>' : ''}${p.c ? '<div class="x">Crossed off</div>' : ''}</div>`,
     { offset: [0, -sz / 2 + 2], closeButton: true });
-  return { ...p, i, k, m, prio: TYPES[k].prio };
+  const f0 = D.timelapse && D.timelapse.pins ? (D.timelapse.pins[i] ?? 0) : 0;
+  return { ...p, i, k, m, f0, prio: TYPES[k].prio };
 });
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 
 const layer = L.layerGroup().addTo(map);
-const visible = p => state.on.has(p.k) && (state.done || !p.c);
+let tlFrame = null;                                       // timelapse frame being shown, or null for now
+const visible = p => state.on.has(p.k) && (state.done || !p.c) && (tlFrame == null || p.f0 <= tlFrame);
 
 function refreshPins() {
   layer.clearLayers();
@@ -471,6 +473,7 @@ const pieceMarkers = O.pieces.map(([x, z, m]) => L.circleMarker(toLL(x, z), {
   renderer: canvas, radius: 2, stroke: false, fillColor: MATCOL[O.materials[m]] || MATCOL.other,
   fillOpacity: 0.95, interactive: false,
 }).addTo(piecesLayer));
+const baseObjs = [];
 O.bases.forEach((b, bi) => {
   const ring = L.circle(toLL(b.x, b.z), { radius: b.r / UNIT_M, color: '#e8c98c', weight: 1.5, opacity: 0.8,
     dashArray: '4 5', fill: true, fillColor: '#e8c98c', fillOpacity: 0.06 });
@@ -485,6 +488,7 @@ O.bases.forEach((b, bi) => {
   const mk = L.marker(toLL(b.x, b.z), { icon: objIcon(OSVG.base, sz), keyboard: false, title, zIndexOffset: 200 }).bindPopup(html);
   mk.bindTooltip(title, { direction: 'top', offset: [0, -sz / 2], className: 'lbl base' });
   basesLayer.addLayer(ring); basesLayer.addLayer(mk);
+  baseObjs.push([ring, mk]);
 });
 function sizePieces() {
   const mPerPx = D.mpp * 2 ** (Z - map.getZoom());
@@ -502,12 +506,14 @@ function partnerOf(p) {
   const same = (byTag[p.tag || ''] || []).filter(q => q !== p);
   return p.tag && same.length === 1 ? same[0] : null;
 }
+const portalLines = [], portalMarkers = [];
 Object.entries(byTag).forEach(([tag, ps]) => {
   if (!tag || ps.length !== 2) return;
   const [a, b] = ps;
   const line = L.polyline([toLL(a.x, a.z), toLL(b.x, b.z)], { color: '#8fd3ff', weight: 2, opacity: 0.75, dashArray: '2 7', lineCap: 'round' });
   line.bindPopup(`<div class="pop"><h3>${esc(tag)}</h3><div class="k">Portal link · ${esc(placeName(a))} ↔ ${esc(placeName(b))} · ${km(dist(a, b))}</div></div>`);
   portalsLayer.addLayer(line);
+  portalLines.push([line, O.portals.indexOf(a), O.portals.indexOf(b)]);
 });
 O.portals.forEach(p => {
   const hub = O.portals.filter(q => dist(q, p) < 30);
@@ -518,7 +524,8 @@ O.portals.forEach(p => {
   const html = hub.length > 1
     ? `<div class="pop"><h3>Portal hub · ${esc(placeName(p))}</h3><div class="k">${hub.length} portals</div><ul>${hub.slice().sort((a, b) => a.tag.localeCompare(b.tag, 'pt')).map(row).join('')}</ul></div>`
     : `<div class="pop"><h3>${esc(p.tag || 'Untagged portal')}</h3><div class="k">Portal · ${esc(placeName(p))}</div><ul>${row(p)}</ul></div>`;
-  portalsLayer.addLayer(L.marker(toLL(p.x, p.z), { icon: objIcon(OSVG.portal, 20), keyboard: false, title: p.tag || 'Portal', zIndexOffset: 300 }).bindPopup(html));
+  const mk = L.marker(toLL(p.x, p.z), { icon: objIcon(OSVG.portal, 20), keyboard: false, title: p.tag || 'Portal', zIndexOffset: 300 }).bindPopup(html);
+  portalsLayer.addLayer(mk); portalMarkers.push(mk);
 });
 
 // Ships and carts
@@ -853,54 +860,133 @@ if (PLAYERS.length) {
 }
 
 // ---------- exploration timelapse ----------
+// While it's on, the live tiles are hidden: the terrain is drawn from a fog-free image masked to what was
+// charted by the frame's day, so nothing from later days can show through. Pins, portals, graves,
+// building pieces and bases appear on the day they were first seen.
 const TL = D.timelapse;
 const tlBar = document.getElementById('tl'), tlRange = document.getElementById('tl-range'),
       tlPlay = document.getElementById('tl-play'), tlText = document.getElementById('tl-text');
-let tlOverlay = null, tlPix = null, tlW = 0, tlH = 0, tlTimer = null, tlCanvas = null;
+let tlOverlay = null, tlPix = null, tlW = 0, tlH = 0, tlTimer = null, tlTerrain = null, tlUrl = null, tlBusy = false, tlWant = null;
 const fmtDate = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', ...tzOpt });
+const tlF = (arr, i) => (arr && arr[i] != null ? arr[i] : 0);
+// a base appears once a handful of its pieces stand
+const pieceFrames = O.pieces.map((_, i) => tlF(TL && TL.pieces, i));
+const baseFrame = O.bases.map(b => {
+  const fs = [];
+  O.pieces.forEach(([x, z], i) => { if (Math.hypot(x - b.x, z - b.z) <= b.r + 4) fs.push(pieceFrames[i]); });
+  fs.sort((a, c) => a - c);
+  return fs.length ? fs[Math.min(3, fs.length - 1)] : 0;
+});
+function tlCounts(k) {
+  return { pins: pins.filter(p => p.f0 <= k).length, bases: baseFrame.filter(f => f <= k).length,
+    portals: O.portals.filter((_, i) => tlF(TL.portals, i) <= k).length };
+}
 function tlLabel(k) {
   const f = TL.frames[k];
   const d = fmtDate.format(new Date(f.t * 1000));
   if (TL.frames.length < 2) return `Recording since ${d}. <span>The first new day shows up after tomorrow's play.</span>`;
-  return (k === 0 ? `Up to ${d}` : d) + ` <span>· day ${f.day} · ${f.km2} km² charted</span>`;
+  const c = tlCounts(k);
+  return (k === 0 ? `Up to ${d}` : d) + ` <span>· day ${f.day} · ${f.km2} km² · ${c.pins} pins · ${c.bases} bases · ${c.portals} portals</span>`;
+}
+// Show the world's objects as of frame k (null = now)
+function tlApplyObjects(k) {
+  const on = f => k == null || f <= k;
+  piecesLayer.clearLayers();
+  pieceMarkers.forEach((m, i) => { if (on(pieceFrames[i])) piecesLayer.addLayer(m); });
+  basesLayer.clearLayers();
+  baseObjs.forEach(([ring, mk], i) => { if (on(baseFrame[i])) { basesLayer.addLayer(ring); basesLayer.addLayer(mk); } });
+  portalsLayer.clearLayers();
+  portalMarkers.forEach((m, i) => { if (on(tlF(TL.portals, i))) portalsLayer.addLayer(m); });
+  portalLines.forEach(([line, a, b]) => { if (on(tlF(TL.portals, a)) && on(tlF(TL.portals, b))) portalsLayer.addLayer(line); });
+  gravesLayer.clearLayers();
+  graveMarkers.forEach((m, i) => { if (on(tlF(TL.graves, i))) gravesLayer.addLayer(m); });
+  // ships move around, so only their current spot is known; the recent layer is about now
+  const shipsNow = k == null || k === TL.frames.length - 1;
+  if (layerOn.ships) shipsNow ? map.addLayer(shipsLayer) : map.removeLayer(shipsLayer);
+  if (layerOn.recent) k == null ? map.addLayer(recentLayer) : map.removeLayer(recentLayer);
+  tlFrame = k;
+  refreshPins(); sizePieces();
+}
+function tlMask(test) {
+  const c = document.createElement('canvas'); c.width = tlW; c.height = tlH;
+  const ctx = c.getContext('2d'), img = ctx.createImageData(tlW, tlH), o = img.data;
+  for (let i = 0, j = 3; i < tlPix.length; i++, j += 4) if (test(tlPix[i])) o[j] = 255;
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+function tlRender(k) {
+  if (!tlPix || !tlTerrain) return;
+  if (tlBusy) { tlWant = k; return; }
+  tlBusy = true;
+  const W = tlTerrain.width, H = tlTerrain.height;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(tlTerrain, 0, 0);
+  if (k > 0) {                                     // what was charted on this very day, tinted
+    ctx.globalCompositeOperation = 'source-atop';
+    const t = tlMask(v => v === k);
+    const tc = document.createElement('canvas'); tc.width = tlW; tc.height = tlH;
+    const tx = tc.getContext('2d'); tx.drawImage(t, 0, 0); tx.globalCompositeOperation = 'source-in';
+    tx.fillStyle = 'rgba(94,199,214,0.38)'; tx.fillRect(0, 0, tlW, tlH);
+    ctx.filter = 'blur(2px)'; ctx.drawImage(tc, 0, 0, W, H); ctx.filter = 'none';
+  }
+  ctx.globalCompositeOperation = 'destination-in'; // keep only what was charted by this day
+  ctx.filter = 'blur(3px)';
+  ctx.drawImage(tlMask(v => v !== 255 && v <= k), 0, 0, W, H);
+  ctx.filter = 'none'; ctx.globalCompositeOperation = 'source-over';
+  cv.toBlob(blob => {
+    const url = URL.createObjectURL(blob);
+    if (tlOverlay) tlOverlay.setUrl(url);
+    if (tlUrl) setTimeout(((u) => () => URL.revokeObjectURL(u))(tlUrl), 2000);
+    tlUrl = url; tlBusy = false;
+    if (tlWant != null) { const w = tlWant; tlWant = null; if (w !== k) tlRender(w); }
+  }, 'image/png');
 }
 function tlDraw(k) {
-  if (!tlPix) return;
-  const ctx = tlCanvas.getContext('2d'), img = ctx.createImageData(tlW, tlH), o = img.data;
-  for (let i = 0, j = 0; i < tlPix.length; i++, j += 4) {
-    const v = tlPix[i];
-    if (v === 255) continue;                      // never charted: the tiles already show fog
-    if (v > k) { o[j] = 58; o[j + 1] = 55; o[j + 2] = 46; o[j + 3] = 255; }      // not yet charted on this day
-    else if (v === k && k > 0) { o[j] = 94; o[j + 1] = 199; o[j + 2] = 214; o[j + 3] = 90; }  // charted this day
-  }
-  ctx.putImageData(img, 0, 0);
-  tlOverlay.setUrl(tlCanvas.toDataURL());
   tlRange.value = k;
   tlText.innerHTML = tlLabel(k);
+  tlApplyObjects(k);
+  tlRender(k);
 }
 function tlStop() { clearInterval(tlTimer); tlTimer = null; tlPlay.textContent = '▶'; tlPlay.setAttribute('aria-label', 'Play timelapse'); }
+function tlLoad() {
+  let left = 2;
+  const done = () => { if (--left === 0 && tlOverlay && map.hasLayer(tlOverlay)) tlRender(+tlRange.value); };
+  const im = new Image();
+  im.onload = () => {
+    tlW = im.width; tlH = im.height;
+    const c = document.createElement('canvas'); c.width = tlW; c.height = tlH;
+    const x = c.getContext('2d'); x.drawImage(im, 0, 0);
+    const d = x.getImageData(0, 0, tlW, tlH).data;
+    tlPix = new Uint8Array(tlW * tlH); for (let i = 0; i < tlPix.length; i++) tlPix[i] = d[i * 4];
+    done();
+  };
+  im.src = TL.png;
+  const ti = new Image();
+  ti.onload = () => { tlTerrain = ti; done(); };
+  ti.src = TL.terrain;
+}
 function tlToggle(on) {
   tlBar.hidden = !on; document.body.classList.toggle('tl-on', on);
-  if (!on) { tlStop(); if (tlOverlay) map.removeLayer(tlOverlay); return; }
+  if (!on) {
+    tlStop();
+    if (tlOverlay) map.removeLayer(tlOverlay);
+    map.addLayer(tileLayer);
+    tlApplyObjects(null);
+    return;
+  }
   if (!tlOverlay) {
     tlOverlay = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=', imgBounds, { className: 'tl-img', interactive: false, zIndex: 250 });
-    const im = new Image();
-    im.onload = () => {
-      tlW = im.width; tlH = im.height;
-      tlCanvas = document.createElement('canvas'); tlCanvas.width = tlW; tlCanvas.height = tlH;
-      const c = tlCanvas.getContext('2d'); c.drawImage(im, 0, 0);
-      const d = c.getImageData(0, 0, tlW, tlH).data;
-      tlPix = new Uint8Array(tlW * tlH); for (let i = 0; i < tlPix.length; i++) tlPix[i] = d[i * 4];
-      tlDraw(+tlRange.value);
-    };
-    im.src = TL.png;
+    tlLoad();
   }
+  map.removeLayer(tileLayer);
   map.addLayer(tlOverlay);
   tlRange.max = TL.frames.length - 1;
   tlPlay.disabled = TL.frames.length < 2; tlRange.disabled = TL.frames.length < 2;
-  if (tlPix) tlDraw(+tlRange.value); else tlText.innerHTML = tlLabel(+tlRange.value || 0);
+  tlDraw(+tlRange.value);
 }
-if (TL && TL.frames && TL.frames.length) {
+if (TL && TL.frames && TL.frames.length && TL.terrain) {
   tlRange.value = TL.frames.length - 1;
   tlRange.oninput = () => { tlStop(); tlDraw(+tlRange.value); };
   tlPlay.onclick = () => {
@@ -908,7 +994,7 @@ if (TL && TL.frames && TL.frames.length) {
     let k = +tlRange.value >= TL.frames.length - 1 ? 0 : +tlRange.value;
     tlDraw(k);
     tlPlay.textContent = '❚❚'; tlPlay.setAttribute('aria-label', 'Pause timelapse');
-    tlTimer = setInterval(() => { k++; if (k >= TL.frames.length) return tlStop(); tlDraw(k); }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 1500 : 700);
+    tlTimer = setInterval(() => { k++; if (k >= TL.frames.length) return tlStop(); tlDraw(k); }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 1800 : 1000);
   };
   const tb = document.createElement('button');
   tb.type = 'button'; tb.className = 'chip'; tb.id = 'l-timelapse'; tb.setAttribute('aria-pressed', 'false');
