@@ -1,0 +1,15 @@
+{
+ "tables": [
+  {
+   "x": 3331,
+   "z": -2184,
+   "km2": 22.86,
+   "pins": 406,
+   "crossed": 67,
+   "only_here_km2": 22.86,
+   "only_here_pins": 406
+  }
+ ],
+ "union_km2": 22.86,
+ "union_pins": 406
+}
