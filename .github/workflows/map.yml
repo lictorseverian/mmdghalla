@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write             # the activity feed's state is kept on the `data` branch
+      contents: write             # feed state lives on the `data` branch, backups on `backup`
     outputs:
       changed: ${{ steps.check.outputs.changed }}
       digest: ${{ steps.check.outputs.digest }}
@@ -68,6 +68,7 @@ jobs:
           lookup-only: true
 
       - name: Pull world over SFTP
+        id: pull
         if: steps.seen.outputs.cache-hit != 'true' || inputs.force || inputs.discord_test
         env:
           SFTP_HOST: ${{ secrets.SFTP_HOST }}
@@ -82,6 +83,24 @@ jobs:
             echo "attempt $i failed, retrying in 90 s"; sleep 90
           done
           test -s digest.txt
+
+      - name: Back up the world (encrypted, to the backup branch)
+        if: steps.pull.outcome == 'success'
+        continue-on-error: true           # a backup hiccup never blocks the map
+        env:
+          BACKUP_KEY: ${{ secrets.BACKUP_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+          WORLD_PATH: ${{ vars.WORLD_PATH }}
+        run: |
+          if [ -z "$BACKUP_KEY" ]; then
+            echo "::warning::No BACKUP_KEY secret, so the world is not being backed up. Add one under Settings → Secrets → Actions."
+            exit 0
+          fi
+          bash scripts/backup.sh
 
       - name: Has the map changed?
         id: prev
