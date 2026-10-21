@@ -8,9 +8,24 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = vkw.stable_hash
 K_CREATOR, K_TAG, K_OWNER_NAME = H('creator'), H('tag'), H('ownerName')
 K_OWNER, K_ITEMS, K_TIME_OF_DEATH, K_IN_WATER = H('owner'), H('items'), H('timeOfDeath'), H('inWater')
+K_SPAWNTIME, K_STACK = H('spawntime'), H('stack')
 TICKS_PER_DAY = 1800 * 10_000_000                           # a Valheim day is 30 min; times are .NET ticks
 
 _names = None
+
+# Stack/pile build pieces hold their full build cost (deconstructing refunds it), so they count as stock.
+# Costs from valheim.weirdgloop.org/w/Stacks_and_Piles. Only player-built ones count (dungeon props have no creator).
+STACK_PIECES = {
+    'wood_stack': ('Wood', 50), 'wood_core_stack': ('RoundLog', 50), 'wood_fine_stack': ('FineWood', 50),
+    'wood_yggdrasil_stack': ('YggdrasilWood', 50), 'blackwood_stack': ('Blackwood', 50),
+    'bar_copper_stack': ('Copper', 30), 'bar_tin_stack': ('Tin', 30), 'bar_bronze_stack': ('Bronze', 30),
+    'bar_iron_stack': ('Iron', 30), 'bar_silver_stack': ('Silver', 30), 'bar_blackmetal_stack': ('BlackMetal', 30),
+    'bar_flametal_stack': ('FlametalNew', 30),
+    'stone_pile': ('Stone', 50), 'flint_pile': ('Flint', 50), 'coal_pile': ('Coal', 50),
+    'bone_stack': ('BoneFragments', 50), 'obsidian_pile': ('Obsidian', 50), 'blackmarble_pile': ('BlackMarble', 50),
+    'grausten_pile': ('Grausten', 50), 'treasure_stack': ('Coins', 99), 'treasure_pile': ('Coins', 999),
+}
+_LIVE_FISH = re.compile(r'Fish\d+(_cave)?$')
 
 
 def names():
@@ -151,6 +166,7 @@ def state(world_dir):
 def extract(world_dir, gen, files, pins):
     N = names()
     portals, ships, beds, pieces, tombs, chests, hives = [], [], [], [], [], [], []
+    stacks, drops, item_prefabs = [], [], set()                 # stock outside chests
     ids = {}                                                     # player id -> character name
     for f in files:
         b = open(f, 'rb').read()
@@ -174,6 +190,10 @@ def extract(world_dir, gen, files, pins):
                 if l.get(K_OWNER):
                     ids[l[K_OWNER]] = s[K_OWNER_NAME]
             creator = l.get(K_CREATOR, 0)
+            if name in STACK_PIECES and creator:
+                stacks.append(dict(x=x, z=z, prefab=STACK_PIECES[name][0], stack=STACK_PIECES[name][1]))
+            elif not creator and K_SPAWNTIME in l and not _LIVE_FISH.match(name):
+                drops.append(dict(x=x, z=z, prefab=name, stack=fields.get('i', {}).get(K_STACK, 1)))
             if name == 'piece_beehive' and creator:
                 hives.append(creator)
             if creator:
@@ -185,6 +205,7 @@ def extract(world_dir, gen, files, pins):
                 except Exception:
                     continue
                 for it in inv:
+                    item_prefabs.add(it['prefab'])
                     if it.get('crafter_id') and it.get('crafter'):
                         ids.setdefault(it['crafter_id'], it['crafter'])
                 if name == 'Player_tombstone':
@@ -196,8 +217,10 @@ def extract(world_dir, gen, files, pins):
                 else:
                     chests.append(dict(x=x, z=z, items=inv, creator=creator))
 
+    # a spawntime ZDO is an item on the floor only if that prefab is an item somewhere (creatures never are)
+    drops = [d for d in drops if d['prefab'] in item_prefabs]
     bases = cluster(pieces, beds, portals, pins)
-    base_details(bases, ids, chests, pins, tombs)
+    base_details(bases, ids, chests, pins, tombs, stacks, drops)
     who = lambda pid: ids.get(pid, 'Unknown viking')
     raw = dict(pieces=[(round(x, 1), round(y, 1), round(z, 1), name, who(pid)) for x, z, _m, name, pid, y in pieces])
     people = players(ids, pieces, pins, tombs, chests, bases, beds, ships, hives)
@@ -254,8 +277,9 @@ def cluster(pieces, beds, portals, pins, cell=24):
     return bases
 
 
-def base_details(bases, ids, chests, pins, tombs):
-    """Per base: who built it, what its chests hold, which pins and graves are in or near it."""
+def base_details(bases, ids, chests, pins, tombs, stacks=(), drops=()):
+    """Per base: who built it, what it has in stock (chests + stack pieces + items on the floor),
+    which pins and graves are in or near it."""
     who = lambda pid: ids.get(pid, 'Unknown viking')
     near = lambda b, o, pad: math.hypot(o['x'] - b['x'], o['z'] - b['z']) <= b['r'] + pad
     for b in bases:
@@ -270,9 +294,17 @@ def base_details(bases, ids, chests, pins, tombs):
                 for it in ch['items']:
                     if it['prefab']:
                         store[it['prefab']] += it['stack']
+        in_chests = sum(store.values())
+        src = dict(chests=in_chests, stacks=0, floor=0)
+        for kind, objs in (('stacks', stacks), ('floor', drops)):
+            for o in objs:
+                if near(b, o, 5):
+                    store[o['prefab']] += o['stack']
+                    src[kind] += o['stack']
         b['chests'] = nchests
         b['store'] = [[item_name(k), n] for k, n in store.most_common(40)]
         b['store_total'] = sum(store.values())
+        b['store_src'] = src
         b['pins'] = sorted({vkw.pretty(p['name']) for p in pins
                             if p['name'].strip() and not p['name'].startswith('$') and near(b, p, 40)})
         b['graves'] = sum(1 for t in tombs if near(b, t, 60))

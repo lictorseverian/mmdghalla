@@ -638,6 +638,12 @@ let returnTab = 'map';
 function showBase(i) {
   const b = O.bases[i];
   const inside = o => dist(b, o) <= b.r + 20;
+  const stockLine = b => {
+    const s = b.store_src || {chests: b.store_total};
+    const parts = [s.chests ? `${nf(s.chests)} in ${b.chests} chest${b.chests === 1 ? '' : 's'}` : '',
+                   s.stacks ? `${nf(s.stacks)} in stacks and piles` : '', s.floor ? `${nf(s.floor)} on the floor` : ''].filter(Boolean);
+    return `${nf(b.store_total)} items: ${parts.join(', ')}.`;
+  };
   const recent = (D.feed.events || []).filter(e => e.x != null && inside(e)).slice(0, 12);
   const top = Math.max(1, ...b.builders.map(r => r[1]));
   const portals = O.portals.filter(p => dist(p, b) <= b.r + 10);
@@ -646,7 +652,7 @@ function showBase(i) {
       <h2>${esc(baseTitle(b))}</h2>
       <div class="facts">
         <div class="fact"><b>${nf(b.pieces)}</b><span>pieces · ${b.stone}% stone</span></div>
-        <div class="fact"><b>${b.chests}</b><span>chest${b.chests === 1 ? '' : 's'} · ${nf(b.store_total)} items</span></div>
+        <div class="fact"><b>${b.chests}</b><span>chest${b.chests === 1 ? '' : 's'} · ${nf(b.store_total)} items in stock</span></div>
         <div class="fact"><b>${b.beds.length}</b><span>bed${b.beds.length === 1 ? '' : 's'}${b.workbenches ? ` · ${b.workbenches} bench${b.workbenches > 1 ? 'es' : ''}` : ''}</span></div>
       </div>
     </div>
@@ -661,8 +667,8 @@ function showBase(i) {
       }).join('')}</ul></section>` : ''}
     ${b.pins.length ? `<section class="cs"><h2>Pins here</h2><div class="chips">${b.pins.map(n => `<span>${esc(n)}</span>`).join('')}</div></section>` : ''}
     ${recent.length ? `<section class="cs"><h2>Recent activity</h2><div>${recent.map(feedItem).join('')}</div></section>` : ''}
-    <section class="cs tre"><h2>In the chests</h2>
-      <div class="sub">${b.chests ? `${nf(b.store_total)} items in ${b.chests} chest${b.chests === 1 ? '' : 's'}.` : 'No chests here.'}${b.graves ? ` ${b.graves} unrecovered grave${b.graves === 1 ? '' : 's'} nearby.` : ''}</div>
+    <section class="cs tre"><h2>In stock</h2>
+      <div class="sub">${b.store_total ? stockLine(b) : 'Nothing stored here.'}${b.graves ? ` ${b.graves} unrecovered grave${b.graves === 1 ? '' : 's'} nearby.` : ''}</div>
       ${b.store.length ? `<dl>${b.store.map(([n, c]) => `<dt>${esc(n)}</dt><dd>${nf(c)}</dd>`).join('')}</dl>` : ''}
     </section>`;
   document.getElementById('base-back').onclick = () => showTab(returnTab);
