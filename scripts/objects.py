@@ -48,13 +48,14 @@ def material(name):
 
 
 def items(blob):
-    """Decode a 1.0 inventory (version 109):
+    """Decode a 1.0 inventory (version 109, or 110 which only adds flag bit 6 with no payload):
     [version i32][count u16] then per item:
     [i32 durability-ish][u8 x][u8 y][u8 ?][u8 flags]
+    bits 0, 1 and 6 carry no payload
     [u16 quality if bit2][u16 stack if bit3][i32 variant if bit4][i64 crafter id + str name if bit5]
     [u32 item prefab hash][u8 ?]"""
     ver, = struct.unpack_from('<i', blob, 0)
-    if ver != 109:
+    if ver not in (109, 110):
         raise ValueError(f'unknown inventory version {ver}')
     cnt, = struct.unpack_from('<H', blob, 4)
     p, out = 6, []
@@ -62,8 +63,6 @@ def items(blob):
         p += 7
         fl = blob[p]; p += 1
         it = dict(quality=1, stack=1)
-        if fl & 0b10:
-            p += 4                                          # not seen in the wild; best guess
         if fl & (1 << 2):
             it['quality'], = struct.unpack_from('<H', blob, p); p += 2
         if fl & (1 << 3):
