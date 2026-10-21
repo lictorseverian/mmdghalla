@@ -9,7 +9,7 @@ The first run only writes a snapshot, so the feed starts empty.
 import base64, collections, gzip, json, math, os, time, zlib
 import numpy as np
 
-import vkw
+import stock, vkw
 
 VERSION = 1
 KEEP = 400                  # events kept in feed.json
@@ -30,7 +30,20 @@ def snapshot(ex, pins, objs, bosses, day, ts):
         portals=[[p['tag'], p['x'], p['z']] for p in objs['portals']],
         bosses=[b['key'] for b in bosses if b['done']],
         bases=[[b['name'], b['x'], b['z'], b['r'], b['pieces']] for b in objs['bases']],
+        track=[r + [r[2] < r[3]] for r in stock.tracked(objs['bases'])],   # [base, prefab, n, thr, low]
     )
+
+
+def settle(prev, cur):
+    """Hysteresis: an item that was low stays low until it is back to RESTOCK x threshold."""
+    was = {(r[0], r[1]) for r in (prev or {}).get('track', []) if r[4]}
+    for r in cur.get('track', []):
+        r[4] = r[2] < r[3] or ((r[0], r[1]) in was and r[2] < r[3] * stock.RESTOCK)
+
+
+def objects_item_name(prefab):
+    import objects                                       # lazy: objects imports this module's neighbours
+    return objects.item_name(prefab)
 
 
 def owner_name(pin, objs):
@@ -216,6 +229,27 @@ def diff(prev, cur):
         add('crossed', f'Crossed off on the map: {names_list(labels)}',
             marks=[[p[1], p[2], vkw.pretty(p[0])] for p in crossed][:60])
 
+    # stock: items crossing into or out of "low" (rows already settled with hysteresis)
+    pt = {(r[0], r[1]): r for r in prev.get('track', [])}
+    where = {b[0]: (b[1], b[2]) for b in cur['bases'] if b[0]}
+    went_low, back = collections.defaultdict(list), collections.defaultdict(list)
+    for r in cur.get('track', []):
+        old = pt.get((r[0], r[1]))
+        if r[4] and not (old and old[4]):
+            went_low[r[0]].append(r)
+        elif old and old[4] and not r[4]:
+            back[r[0]].append(r)
+    nm = lambda p: objects_item_name(p)
+    for base, rows in went_low.items():
+        rows.sort(key=lambda r: r[2] / r[3])
+        x, z = where.get(base, (None, None))
+        add('low', f"Running low at {base}: " + names_list([f'{nm(r[1])} {r[2]}/{r[3]}' for r in rows], 8),
+            x=x, z=z, items=[[nm(r[1]), r[2], r[3]] for r in rows])
+    for base, rows in back.items():
+        x, z = where.get(base, (None, None))
+        add('restocked', f"Restocked at {base}: " + names_list([f'{nm(r[1])} ({r[2]})' for r in rows], 8),
+            x=x, z=z, items=[[nm(r[1]), r[2], r[3]] for r in rows])
+
     # newly charted ground
     ec, ep = explored(cur), explored(prev)
     new = ec & ~ep
@@ -250,7 +284,8 @@ def diff(prev, cur):
         noun = 'cart' if o[0] == 'Cart' else o[0].lower()
         add('ship', f'The {noun} {P.at(o[1], o[2])} is gone', x=o[1], z=o[2])
 
-    order = ['boss', 'newbase', 'death', 'portal', 'build', 'pins', 'charted', 'ship', 'recovered', 'crossed', 'demolish']
+    order = ['boss', 'newbase', 'death', 'low', 'portal', 'build', 'pins', 'charted', 'ship', 'restocked', 'recovered',
+             'crossed', 'demolish']
     ev.sort(key=lambda e: order.index(e['kind']))
     for i, e in enumerate(ev):
         e.update(t=cur['ts'], day=cur['day'], id=f"{cur['ts']}-{i}")
@@ -263,6 +298,7 @@ def update(state_dir, cur):
     """Diff against the stored snapshot, append events, store the new snapshot. Returns the feed."""
     prev, feed = load_state(state_dir)
     feed = feed or dict(since=cur['ts'], events=[])
+    settle(prev, cur)
     if prev is not None and prev['ts'] != cur['ts']:
         feed['events'] = diff(prev, cur) + feed['events']
         feed['events'] = sorted(feed['events'], key=lambda e: -e['t'])[:KEEP]

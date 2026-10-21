@@ -13,10 +13,10 @@ State: STATE_DIR/discord.json  {"posted_upto": <epoch>, "status_id": "<message i
 """
 import json, os, sys, time, urllib.error, urllib.request, uuid
 
-BIG = ['boss', 'newbase', 'death', 'portal', 'ship', 'charted']
+BIG = ['boss', 'newbase', 'death', 'low', 'portal', 'ship', 'charted']
 EMOJI = {'boss': '🏆', 'newbase': '🏠', 'death': '💀', 'portal': '🌀', 'ship': '⛵', 'charted': '🧭',
-         'build': '🔨', 'pins': '📍', 'demolish': '🪓', 'recovered': '⚰️', 'crossed': '✅'}
-COLOR = {'boss': 0xE9BB5E, 'death': 0xB8322B, 'newbase': 0xC08A50, 'portal': 0x7F9CF5}
+         'low': '⚠️', 'restocked': '📦', 'build': '🔨', 'pins': '📍', 'demolish': '🪓', 'recovered': '⚰️', 'crossed': '✅'}
+COLOR = {'boss': 0xE9BB5E, 'death': 0xB8322B, 'low': 0xE07A2E, 'newbase': 0xC08A50, 'portal': 0x7F9CF5}
 UA = 'DiscordBot (https://github.com/lictorseverian/mmdghalla, 1.0)'
 
 
@@ -69,6 +69,7 @@ def summary(events, site, site_dir):
     extra = [f"{w} placed {n} pieces" for w, n in sorted(built.items(), key=lambda kv: -kv[1])]
     if pins:
         extra.append(f"{pins} new pin{'s' if pins != 1 else ''}")
+    extra += [f"📦 {e['text']}" for e in small if e['kind'] == 'restocked']
     desc = '\n'.join(lines)
     if extra:
         desc += '\n\n*Also: ' + ', '.join(extra) + '*'
@@ -90,6 +91,9 @@ def status_card(stats, feed, site):
               dict(name='Portals', value=str(stats.get('portals', 0)), inline=True),
               dict(name='Pins', value=str(stats.get('pins', 0)), inline=True),
               dict(name='Unrecovered graves', value=str(stats.get('graves', 0)), inline=True)]
+    for b in stats.get('low', []):
+        rows = ' · '.join(f'{n} **{c}**/{t}' for n, c, t in b['items'])
+        fields.append(dict(name=f"⚠️ Running low at {b['base']}", value=rows[:1000], inline=False))
     if latest:
         fields.append(dict(name='Latest', value='\n'.join(latest)[:1000], inline=False))
     return dict(title=f"🗺️ {stats['world']} · the known world", url=site,

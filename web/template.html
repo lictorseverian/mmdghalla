@@ -167,8 +167,8 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .tabs { display: flex; gap: 4px; margin-top: 10px; }
 .tab {
   flex: 1; background: none; border: 1px solid var(--rule); color: var(--muted);
-  font: 700 12px var(--body); letter-spacing: .12em; text-transform: uppercase;
-  padding: 7px 0; border-radius: 6px; cursor: pointer;
+  font: 700 12px var(--body); letter-spacing: .07em; text-transform: uppercase;
+  padding: 7px 0; border-radius: 6px; cursor: pointer; position: relative; min-width: 0;
 }
 .tab[aria-selected="true"] { background: var(--chip-on); color: var(--ink); border-color: #5a4d39; }
 .tab:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
@@ -263,6 +263,30 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
 #tl .tlt { grid-column: 1 / -1; font-size: 13px; color: var(--ink); font-variant-numeric: tabular-nums; }
 #tl .tlt span { color: var(--muted); }
 .tl-img { image-rendering: auto; }
+#invbody { overflow-y: auto; padding-bottom: 12px; }
+.tab .dot { position: absolute; top: -4px; right: -4px; width: 9px; height: 9px; border: 2px solid var(--panel-solid); border-radius: 50%; background: #ff9a3d; }
+.tab:has(.dot) { flex: 1.25; }
+.invtools { display: grid; gap: 8px; margin-bottom: 4px; }
+.invtools select, .invtools input[type="search"] {
+  width: 100%; box-sizing: border-box; background: #221e18; color: var(--ink); border: 1px solid var(--rule);
+  border-radius: 6px; padding: 8px 10px; font: 14px var(--body);
+}
+.invtools select:focus-visible, .invtools input:focus-visible { outline: 2px solid var(--gold); outline-offset: 0; }
+.invtools .sw { padding: 0; }
+.ir { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; align-items: baseline; padding: 3px 0; font-size: 13.5px; }
+.ir .v { font-variant-numeric: tabular-nums; color: #e4d5b4; text-align: right; }
+.ir .t { color: #8a7f6c; font-size: 11.5px; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.ir .ib { grid-column: 1 / -1; position: relative; height: 4px; background: #2a251e; border-radius: 2px; }
+.ir .ib i { position: absolute; left: 0; top: 0; bottom: 0; background: #7fae4e; border-radius: 2px; }
+.ir .ib b { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; margin-left: -1px; background: #e8c98c; }
+.ir.low .n, .ir.low .v { color: #ff9a3d; }
+.ir.low .ib i { background: #ff9a3d; }
+.lowcard { background: #2c1d10; border: 1px solid #6b3f1c; border-radius: 8px; padding: 10px 12px 8px; margin-top: 2px; }
+.lowcard h2 { display: flex; align-items: center; gap: 8px; color: #ffb36b; }
+.lowcard h2 svg { width: 20px; height: 20px; flex: none; }
+.lowcard .sub { color: #c8a27a; }
+.fi.flow { background: #2c1d10; }
+.inv-empty { color: var(--muted); font-size: 14px; margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 </style>
 
@@ -285,6 +309,7 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
       <button class="tab" role="tab" id="tab-map" aria-selected="true" aria-controls="panelbody" type="button">Map</button>
       <button class="tab" role="tab" id="tab-clan" aria-selected="false" aria-controls="clanbody" type="button">Clan</button>
       <button class="tab" role="tab" id="tab-feed" aria-selected="false" aria-controls="feedbody" type="button">Feed</button>
+      <button class="tab" role="tab" id="tab-inv" aria-selected="false" aria-controls="invbody" type="button">Inventory</button>
     </div>
   </div>
   <div class="body" id="panelbody" role="tabpanel" aria-labelledby="tab-map">
@@ -301,6 +326,7 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
   </div>
   <div class="body" id="clanbody" role="tabpanel" aria-labelledby="tab-clan" hidden></div>
   <div class="body" id="feedbody" role="tabpanel" aria-labelledby="tab-feed" hidden></div>
+  <div class="body" id="invbody" role="tabpanel" aria-labelledby="tab-inv" hidden></div>
   <div class="body" id="basebody" role="region" aria-label="Base" hidden></div>
   <div class="body" id="playerbody" role="region" aria-label="Viking" hidden></div>
   <div class="foot">Everything recorded at the cartography tables. Unrecorded ground stays under fog. Boss sites read from runestones show through it, the same as in game. Bases, portals and ships are read from the world itself. Coordinates are in-game x, z.</div>
@@ -656,6 +682,9 @@ function showBase(i) {
         <div class="fact"><b>${b.beds.length}</b><span>bed${b.beds.length === 1 ? '' : 's'}${b.workbenches ? ` · ${b.workbenches} bench${b.workbenches > 1 ? 'es' : ''}` : ''}</span></div>
       </div>
     </div>
+    ${b.low && b.low.length ? `<section class="cs"><div class="lowcard"><h2>${WARN_SVG}Running low</h2>
+      <div class="sub">${b.low.length} item${b.low.length === 1 ? '' : 's'} below the minimum.</div>${invRows(b.low, b.watch, new Set(b.low.map(r => r[0])))}
+      <button class="linkbtn" type="button" id="base-inv">Open full stock</button></div></section>` : ''}
     <section class="cs"><h2>Built by</h2>
       <div class="lb">${b.builders.map(([n, c]) => `<div class="lbr"><span class="n" data-player="${esc(n)}" tabindex="0" role="link">${esc(n)}</span><span class="v">${nf(c)}</span>
         <span class="bar"><i style="width:${(100 * c / top).toFixed(2)}%;background:#c08a50"></i></span></div>`).join('')}</div>
@@ -672,6 +701,8 @@ function showBase(i) {
       ${b.store.length ? `<dl>${b.store.map(([n, c]) => `<dt>${esc(n)}</dt><dd>${nf(c)}</dd>`).join('')}</dl>` : ''}
     </section>`;
   document.getElementById('base-back').onclick = () => showTab(returnTab);
+  const bi = document.getElementById('base-inv');
+  if (bi) bi.onclick = () => { invBase = i; renderInv(); showTab('inv'); };
   wireFeedItems(baseBox);
   if (!['base', 'player'].includes(currentTab)) returnTab = currentTab;
   showTab('base');
@@ -697,11 +728,13 @@ const tzOpt = D.tz ? { timeZone: D.tz } : {};
 const fmtDay = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', ...tzOpt });
 const fmtTime = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', ...tzOpt });
 const CHART_SVG = `<svg viewBox="-12 -12 24 24"><circle r="9" fill="#1d3a40" stroke="#5ec7d6" stroke-width="2"/><path d="M0-7 2.5 0 0 7-2.5 0Z" fill="#5ec7d6"/></svg>`;
-const FEED_ICON = { boss: SVG.boss, newbase: OSVG.base, build: OSVG.base, death: GSVG, recovered: GSVG, portal: OSVG.portal,
+const WARN_SVG = `<svg viewBox="-12 -12 24 24"><path d="M0-9.5 10 8.5h-20Z" fill="#3a2410" stroke="#ff9a3d" stroke-width="2" stroke-linejoin="round"/><path d="M0-3.5v5.5" stroke="#ff9a3d" stroke-width="2.2" stroke-linecap="round"/><circle cy="5.4" r="1.4" fill="#ff9a3d"/></svg>`;
+const CRATE_SVG = `<svg viewBox="-12 -12 24 24"><rect x="-8.5" y="-7" width="17" height="14" rx="1.5" fill="#2f2617" stroke="#c08a50" stroke-width="2"/><path d="M-8.5-1h17M-3-7v14M3-7v14" stroke="#c08a50" stroke-width="1.6"/></svg>`;
+const FEED_ICON = { low: WARN_SVG, restocked: CRATE_SVG, boss: SVG.boss, newbase: OSVG.base, build: OSVG.base, death: GSVG, recovered: GSVG, portal: OSVG.portal,
   pins: SVG.dot, crossed: SVG.dot.replace('</svg>', XMARK + '</svg>'), charted: CHART_SVG, ship: OSVG.ship, demolish: SVG.hammer };
 function feedItem(e) {
   const go = e.x != null || (e.cells && e.cells.length) || (e.marks && e.marks.length);
-  return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
+  return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}${e.kind === 'low' ? ' flow' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
     <span>${esc(e.text)}<span class="when">Day ${e.day} · ${fmtTime.format(new Date(e.t * 1000))}</span></span></div>`;
 }
 const evById = {}; F.events.forEach(e => evById[e.id] = e);
@@ -748,7 +781,8 @@ const feedBox = document.getElementById('feedbody');
 const recentLayer = L.layerGroup();
 const WEEK = 7 * 86400, nowS = Date.now() / 1000;
 const RC = { build: '#a6e35f', newbase: '#ffd35c', death: '#ff5a4e', recovered: '#b8b0a2', portal: '#b58cff',
-  pins: '#fbf6ea', crossed: '#ff5a4e', charted: '#5ec7d6', ship: '#ffb347', demolish: '#ff8a3d', boss: '#ffd35c' };
+  pins: '#fbf6ea', crossed: '#ff5a4e', charted: '#5ec7d6', ship: '#ffb347', demolish: '#ff8a3d', boss: '#ffd35c',
+  low: '#ff9a3d', restocked: '#a6e35f' };
 let recentCount = 0;
 F.events.filter(e => nowS - e.t < WEEK).forEach(e => {
   const a = Math.max(0.3, 1 - (nowS - e.t) / WEEK), c = RC[e.kind] || '#fff';
@@ -1009,17 +1043,77 @@ if (TL && TL.frames && TL.frames.length && TL.terrain) {
   lbox.appendChild(tb);
 }
 
+// ---------- inventory tab ----------
+// b.stock rows: [prefab, name, count, group]; b.watch: {prefab: minimum}; b.low rows: [prefab, name, count, minimum]
+const invBox = document.getElementById('invbody');
+function invRows(rows, watch, low) {
+  return rows.map(([p, n, c]) => {
+    const t = watch && watch[p];
+    return `<div class="ir${low.has(p) ? ' low' : ''}" title="${esc(p)}"><span class="n">${esc(n)}${t ? `<span class="t">min ${nf(t)}</span>` : ''}</span>
+      <span class="v">${nf(c)}</span>${t ? `<span class="ib" aria-hidden="true"><i style="width:${Math.min(100, 50 * c / t).toFixed(1)}%"></i><b></b></span>` : ''}</div>`;
+  }).join('');
+}
+const invBases = O.bases.map((b, i) => i).filter(i => (O.bases[i].stock || []).length || O.bases[i].watch)
+  .sort((a, c) => (!!O.bases[c].watch - !!O.bases[a].watch) || (O.bases[c].store_total - O.bases[a].store_total));
+let invBase = invBases.length ? invBases[0] : -1, invQ = '', invWatched = false;
+const lowTotal = O.bases.reduce((s, b) => s + ((b.low || []).length), 0);
+if (lowTotal) {
+  const t = document.getElementById('tab-inv');
+  t.insertAdjacentHTML('beforeend', '<span class="dot" aria-hidden="true"></span>');
+  t.setAttribute('aria-label', `Inventory, ${lowTotal} item${lowTotal === 1 ? '' : 's'} running low`);
+}
+function renderInv() {
+  if (invBase < 0) { invBox.innerHTML = `<section class="cs"><h2>Inventory</h2><div class="inv-empty">No chests found in any base yet.</div></section>`; return; }
+  const b = O.bases[invBase], watch = b.watch || {}, low = new Set((b.low || []).map(r => r[0]));
+  const have = new Set((b.stock || []).map(r => r[0]));
+  const all = (b.stock || []).concat((b.low || []).filter(r => !have.has(r[0])).map(r => [r[0], r[1], 0, 'Everything else']));
+  const q = invQ.trim().toLowerCase();
+  const rows = all.filter(r => (!invWatched || watch[r[0]]) && (!q || r[1].toLowerCase().includes(q) || r[0].toLowerCase().includes(q)));
+  const src = b.store_src || {};
+  const parts = [src.chests ? `${nf(src.chests)} in ${b.chests} chest${b.chests === 1 ? '' : 's'}` : '',
+                 src.stacks ? `${nf(src.stacks)} in stacks and piles` : '', src.floor ? `${nf(src.floor)} on the floor` : ''].filter(Boolean);
+  const groups = (D.stockGroups || ['Everything else']).map(g => [g, rows.filter(r => r[3] === g)]).filter(([, rs]) => rs.length);
+  const lowRows = (b.low || []).filter(r => rows.some(x => x[0] === r[0]));
+  invBox.innerHTML = `
+    <section class="cs"><h2>Inventory</h2>
+      <div class="sub">Everything stored in a base: chests, stacks and piles, and items left on the floor.</div>
+      <div class="invtools">
+        <select id="inv-base" aria-label="Base">${invBases.map(i => {
+          const x = O.bases[i];
+          return `<option value="${i}"${i === invBase ? ' selected' : ''}>${x.low && x.low.length ? '⚠ ' : ''}${esc(baseTitle(x))} · ${nf(x.store_total)} items</option>`;
+        }).join('')}</select>
+        <input id="inv-q" type="search" placeholder="Find an item: iron, mead, trophy…" autocomplete="off" aria-label="Search items" value="${esc(invQ)}">
+        ${Object.keys(watch).length ? `<label class="sw"><input type="checkbox" id="inv-w"${invWatched ? ' checked' : ''}><span>Only items with a minimum</span></label>` : ''}
+      </div>
+      <div class="sub">${nf(b.store_total)} items${parts.length ? ': ' + parts.join(', ') : ''}. <span class="plink" id="inv-goto" role="link" tabindex="0">Open the base page</span></div>
+    </section>
+    ${lowRows.length ? `<section class="cs"><div class="lowcard"><h2>${WARN_SVG}Running low</h2>
+      <div class="sub">${lowRows.length} item${lowRows.length === 1 ? '' : 's'} below the minimum. Restocked counts from 120% of it.</div>
+      ${invRows(lowRows, watch, low)}</div></section>` : ''}
+    <section class="cs tre">${groups.length ? groups.map(([g, rs]) => `<h3>${esc(g)}</h3>${invRows(rs, watch, low)}`).join('')
+      : `<div class="inv-empty">${q ? `Nothing matching “${esc(invQ)}” here.` : 'Nothing stored here.'}</div>`}</section>`;
+  document.getElementById('inv-base').onchange = e => { invBase = +e.target.value; renderInv(); };
+  const qi = document.getElementById('inv-q');
+  qi.oninput = e => { invQ = e.target.value; const pos = e.target.selectionStart; renderInv(); const n = document.getElementById('inv-q'); n.focus(); n.setSelectionRange(pos, pos); };
+  const w = document.getElementById('inv-w');
+  if (w) w.onchange = e => { invWatched = e.target.checked; renderInv(); };
+  const go = document.getElementById('inv-goto');
+  go.onclick = () => showBase(invBase);
+  go.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showBase(invBase); } };
+}
+renderInv();
+
 // ---------- tabs ----------
-const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', base: 'basebody', player: 'playerbody' };
+const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', inv: 'invbody', base: 'basebody', player: 'playerbody' };
 let currentTab = 'map';
 function showTab(name) {
   currentTab = name;
   Object.entries(TABS).forEach(([k, id]) => { document.getElementById(id).hidden = k !== name; });
-  ['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
+  ['map', 'clan', 'feed', 'inv'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
   if (narrow() && panel.classList.contains('collapsed')) setCollapsed(false);
   if (!['base', 'player'].includes(name)) { try { localStorage.setItem('vkw-tab', name); } catch (e) {} }
 }
-['map', 'clan', 'feed'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
+['map', 'clan', 'feed', 'inv'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
 // ---------- panel ----------
 document.getElementById('stats').innerHTML =
   `Day <b>${D.day}</b> · <b>${D.km2} km²</b> charted · <b>${D.pins.length}</b> pins · as of ${D.asOf}`;
@@ -1083,7 +1177,7 @@ function setCollapsed(c) {
 }
 tog.onclick = () => setCollapsed(!panel.classList.contains('collapsed'));
 if (narrow()) setCollapsed(true);
-try { const saved = localStorage.getItem('vkw-tab'); if (saved === 'clan' || saved === 'feed') showTab(saved); } catch (e) {}
+try { const saved = localStorage.getItem('vkw-tab'); if (['clan', 'feed', 'inv'].includes(saved)) showTab(saved); } catch (e) {}
 if (narrow()) setCollapsed(true);
 L.DomEvent.disableClickPropagation(panel);
 L.DomEvent.disableScrollPropagation(panel);

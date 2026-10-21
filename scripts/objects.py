@@ -2,7 +2,7 @@
 boss progress, day, and the clan stats built from them (builders, cartographers, graveyard, treasury)."""
 import collections, gzip, math, os, re, struct, zlib
 
-import vkw, zdo
+import stock, vkw, zdo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = vkw.stable_hash
@@ -133,6 +133,13 @@ TREASURY_GROUPS = [
 ]
 
 
+_GROUP_OF = {p: title for title, keys in TREASURY_GROUPS for p in keys}
+
+
+def item_group(prefab):
+    return _GROUP_OF.get(prefab, 'Everything else')
+
+
 def db2_state(world_dir, gen):
     """(defeated boss keys, in-game day) from _main.N.db2 (16-byte header, then zlib/gzip data)."""
     raw = open(os.path.join(world_dir, f'_main.{gen}.db2'), 'rb').read()
@@ -158,7 +165,7 @@ def state(world_dir):
                    b=sorted((round(b['x'] / 25), round(b['z'] / 25), b['pieces'] // 10) for b in objs['bases']),
                    s=sorted((s['kind'], round(s['x'] / 25), round(s['z'] / 25)) for s in objs['ships']),
                    g=sorted((t['owner'], round(t['x']), round(t['z'])) for t in objs['graves']),
-                   k=sorted(keys))
+                   k=sorted(keys), t=stock.digest_key(objs['bases']))
     digest = hashlib.sha256((table_digest + json.dumps(summary)).encode()).hexdigest()
     return info, ex, pins, objs, bosses, day, digest, mtime
 
@@ -220,7 +227,8 @@ def extract(world_dir, gen, files, pins):
     # a spawntime ZDO is an item on the floor only if that prefab is an item somewhere (creatures never are)
     drops = [d for d in drops if d['prefab'] in item_prefabs]
     bases = cluster(pieces, beds, portals, pins)
-    base_details(bases, ids, chests, pins, tombs, stacks, drops)
+    counts = base_details(bases, ids, chests, pins, tombs, stacks, drops)
+    stock.annotate(bases, counts, item_name, item_group)
     who = lambda pid: ids.get(pid, 'Unknown viking')
     raw = dict(pieces=[(round(x, 1), round(y, 1), round(z, 1), name, who(pid)) for x, z, _m, name, pid, y in pieces])
     people = players(ids, pieces, pins, tombs, chests, bases, beds, ships, hives)
@@ -282,6 +290,7 @@ def base_details(bases, ids, chests, pins, tombs, stacks=(), drops=()):
     which pins and graves are in or near it."""
     who = lambda pid: ids.get(pid, 'Unknown viking')
     near = lambda b, o, pad: math.hypot(o['x'] - b['x'], o['z'] - b['z']) <= b['r'] + pad
+    counts = []
     for b in bases:
         builders = collections.Counter(who(p[4]) for p in b['_ps'])
         b['builders'] = [[n, c] for n, c in builders.most_common()]
@@ -305,9 +314,11 @@ def base_details(bases, ids, chests, pins, tombs, stacks=(), drops=()):
         b['store'] = [[item_name(k), n] for k, n in store.most_common(40)]
         b['store_total'] = sum(store.values())
         b['store_src'] = src
+        counts.append(store)
         b['pins'] = sorted({vkw.pretty(p['name']) for p in pins
                             if p['name'].strip() and not p['name'].startswith('$') and near(b, p, 40)})
         b['graves'] = sum(1 for t in tombs if near(b, t, 60))
+    return counts
 
 
 def summarise(inv):

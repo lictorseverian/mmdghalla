@@ -1,0 +1,51 @@
+# Low-stock thresholds, read by scripts/stock.py on every build.
+#
+#   base: NAME @ X, Z      starts a base. X, Z is any point inside it (world metres, as on the map).
+#                          The base whose footprint holds that point is tracked and shown under NAME.
+#   Prefab  threshold      warn when the base holds fewer than `threshold` of that item.
+#
+# Prefab ids are Valheim's internal item names (the Inventory tab shows them on hover).
+# Stock = chests + stack/pile pieces + items lying on the floor inside the base.
+# An item is "low" below its threshold and counts as restocked again at 120% of it.
+
+base: VILA NOVA @ 3341, -2192
+Root            10
+SurtlingCore    20
+LeatherScraps   30
+Honey           30
+Entrails        30
+BarleyFlour     30
+Obsidian        30
+Needle          30
+Resin           30
+Tar             30
+WolfPelt        30
+BjornHide       30
+TrollHide       30
+Cloudberry      30
+BlackMetal      30
+Onion           30
+WolfMeat        30
+Carrot          30
+Tin             30
+Copper          30
+Iron            30
+DeerHide        30
+WolfHairBundle  30
+DeerMeat        30
+Mushroom        30
+Silver          30
+Feathers        30
+Chain           30
+Bronze          30
+Bloodbag        30
+Thistle         30
+FreezeGland     30
+LoxMeat         30
+Raspberry       30
+Blueberries     30
+LoxPelt         30
+LinenThread     50
+GreydwarfEye    50
+ElderBark       50
+Coins           500

@@ -276,6 +276,19 @@ def build(world_dir, dump_bin, out, state_dir=None):
         tl['terrain'] = 'timelapse.webp'
         print(f'timelapse: {len(frames)} frame(s)', file=sys.stderr)
 
+    # low stock as settled by the feed (hysteresis); without state, the plain count < threshold view
+    settled = {(r[0], r[1]): r[4] for r in snap.get('track', [])} if state_dir else {}
+    low_now = []
+    for b in objs['bases']:
+        if 'watch' not in b:
+            continue
+        counts = {r[0]: r[2] for r in b['stock']}
+        b['low'] = [[p, objects.item_name(p), counts.get(p, 0), t] for p, t in b['watch'].items()
+                    if settled.get((b['name'], p), counts.get(p, 0) < t)]
+        b['low'].sort(key=lambda r: (r[2] / r[3], r[1]))
+        rows = [[r[1], r[2], r[3]] for r in b['low']]
+        if rows:
+            low_now.append(dict(base=b['name'], items=rows))
     as_of = datetime.datetime.fromtimestamp(mtime, ZoneInfo(TZ)).strftime('%d %b %Y, %H:%M')
     km2 = round(float(ex.sum() * PX_M * PX_M / 1e6), 1)
     data = dict(world=info['name'], west=west, north=north, mpp=MPP, edgeR=EDGE_R, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
@@ -283,6 +296,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
                              pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),
                 clan=objs['clan'], feed=page_feed, tz=TZ,
+                stockGroups=[t for t, _ in objects.TREASURY_GROUPS] + ['Everything else'],
                 players=objs['players'], portraits=portraits, timelapse=tl,
                 pins=[dict(n=vkw.pretty(p['name']), raw=p['name'], x=round(p['x'], 1), z=round(p['z'], 1),
                            t=p['type'], c=p['checked']) for p in pins])
@@ -299,7 +313,8 @@ def build(world_dir, dump_bin, out, state_dir=None):
                    bosses=[b['name'] for b in bosses if b['done']], bases=len(objs['bases']),
                    boss_track=[dict(name=b['name'], done=b['done']) for b in bosses], graves=len(objs['graves']),
                    tables=len((vkw.LAST_REPORT or {}).get('tables', [])),
-                   portals=len(objs['portals'])),
+                   portals=len(objs['portals']),
+                   low=low_now),
               open(os.path.join(out, 'stats.json'), 'w'))
     open(os.path.join(out, '.nojekyll'), 'w').close()
     print(f'{n} tiles, {km2} km², {len(pins)} pins, as of {as_of}', file=sys.stderr)
