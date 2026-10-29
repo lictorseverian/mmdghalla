@@ -166,9 +166,9 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .lbl.base { color: #f1d9a6; font-size: 13px; }
 .tabs { display: flex; gap: 4px; margin-top: 10px; }
 .tab {
-  flex: 1; background: none; border: 1px solid var(--rule); color: var(--muted);
-  font: 700 12px var(--body); letter-spacing: .07em; text-transform: uppercase;
-  padding: 7px 0; border-radius: 6px; cursor: pointer; position: relative; min-width: 0;
+  flex: 1 1 auto; background: none; border: 1px solid var(--rule); color: var(--muted);
+  font: 700 11.5px var(--body); letter-spacing: .03em; text-transform: uppercase;
+  padding: 7px 3px; border-radius: 6px; cursor: pointer; position: relative; min-width: 0;
 }
 .tab[aria-selected="true"] { background: var(--chip-on); color: var(--ink); border-color: #5a4d39; }
 .tab:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
@@ -264,8 +264,18 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
 #tl .tlt span { color: var(--muted); }
 .tl-img { image-rendering: auto; }
 #invbody { overflow-y: auto; padding-bottom: 12px; }
+#ptlbody { overflow-y: auto; padding-bottom: 12px; }
+.ptl { list-style: none; margin: 0 -10px; padding: 0; }
+.ptl .row { grid-template-columns: 20px 1fr auto; }
+.ptl .row[aria-current="true"] { background: #2b3446; box-shadow: inset 3px 0 0 #9fd8ff; }
+.ptl .nm b { color: #9fd8ff; font-weight: 700; }
+.ptl .why { display: block; color: var(--muted); font-size: 12px; white-space: normal; }
+.ptl .why.warn { color: #ffb36b; }
+.hl-ring { animation: hlpulse 1.6s ease-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes hlpulse { 0% { stroke-opacity: 1; stroke-width: 3; } 100% { stroke-opacity: .15; stroke-width: 9; } }
+@media (prefers-reduced-motion: reduce) { .hl-ring { animation: none; } }
 .tab .dot { position: absolute; top: -4px; right: -4px; width: 9px; height: 9px; border: 2px solid var(--panel-solid); border-radius: 50%; background: #ff9a3d; }
-.tab:has(.dot) { flex: 1.25; }
+.tab:has(.dot) { flex-grow: 1.25; }
 .invtools { display: grid; gap: 8px; margin-bottom: 4px; }
 .invtools select, .invtools input[type="search"] {
   width: 100%; box-sizing: border-box; background: #221e18; color: var(--ink); border: 1px solid var(--rule);
@@ -310,6 +320,7 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
       <button class="tab" role="tab" id="tab-clan" aria-selected="false" aria-controls="clanbody" type="button">Clan</button>
       <button class="tab" role="tab" id="tab-feed" aria-selected="false" aria-controls="feedbody" type="button">Feed</button>
       <button class="tab" role="tab" id="tab-inv" aria-selected="false" aria-controls="invbody" type="button">Inventory</button>
+      <button class="tab" role="tab" id="tab-ptl" aria-selected="false" aria-controls="ptlbody" type="button">Portals</button>
     </div>
   </div>
   <div class="body" id="panelbody" role="tabpanel" aria-labelledby="tab-map">
@@ -327,6 +338,7 @@ img.portrait { border-radius: 50%; object-fit: cover; background: #2a251e; borde
   <div class="body" id="clanbody" role="tabpanel" aria-labelledby="tab-clan" hidden></div>
   <div class="body" id="feedbody" role="tabpanel" aria-labelledby="tab-feed" hidden></div>
   <div class="body" id="invbody" role="tabpanel" aria-labelledby="tab-inv" hidden></div>
+  <div class="body" id="ptlbody" role="tabpanel" aria-labelledby="tab-ptl" hidden></div>
   <div class="body" id="basebody" role="region" aria-label="Base" hidden></div>
   <div class="body" id="playerbody" role="region" aria-label="Viking" hidden></div>
   <div class="foot">Everything recorded at the cartography tables. Unrecorded ground stays under fog. Boss sites read from runestones show through it, the same as in game. Bases, portals and ships are read from the world itself. Coordinates are in-game x, z.</div>
@@ -1103,17 +1115,57 @@ function renderInv() {
 }
 renderInv();
 
+// ---------- portals tab: portals with nowhere to go ----------
+// Unlinked = no tag, a tag nobody else uses, or a tag shared by 3+ portals (Valheim then pairs them unpredictably).
+const ptlBox = document.getElementById('ptlbody');
+const deadPortals = O.portals.map((p, i) => {
+  const n = (byTag[p.tag || ''] || []).length;
+  const why = !p.tag ? 'Untagged' : n === 1 ? 'No partner with this tag' : n > 2 ? `Tag shared by ${n} portals` : null;
+  return why && { p, i, why, warn: n > 2 };
+}).filter(Boolean).sort((a, b) => (a.p.tag || '~').localeCompare(b.p.tag || '~', 'pt') || a.p.x - b.p.x);
+if (deadPortals.length) {
+  const t = document.getElementById('tab-ptl');
+  t.insertAdjacentHTML('beforeend', '<span class="dot" aria-hidden="true"></span>');
+  t.setAttribute('aria-label', `Portals, ${deadPortals.length} without a link`);
+}
+let hlRing = null, hlIdx = -1;
+function highlightPortal(i) {
+  const p = O.portals[i], ll = toLL(p.x, p.z), m = portalMarkers[i];
+  if (!layerOn.portals) document.getElementById('l-portals').click();
+  if (hlRing) map.removeLayer(hlRing);
+  hlRing = L.circleMarker(ll, { radius: 18, color: '#ff9a3d', weight: 3, opacity: 1, fill: false, interactive: false, className: 'hl-ring' }).addTo(map);
+  hlIdx = i;
+  ptlBox.querySelectorAll('.row').forEach(r => r.setAttribute('aria-current', String(+r.dataset.i === i)));
+  if (narrow()) setCollapsed(true);
+  map.flyTo(ll, Math.max(map.getZoom(), 5), { duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 0.8 });
+  map.once('moveend', () => { if (map.hasLayer(m)) m.openPopup(); });
+}
+map.on('click', () => { if (hlRing) { map.removeLayer(hlRing); hlRing = null; hlIdx = -1; ptlBox.querySelectorAll('.row').forEach(r => r.setAttribute('aria-current', 'false')); } });
+function renderPortals() {
+  const linked = Object.entries(byTag).filter(([t, ps]) => t && ps.length === 2).length;
+  ptlBox.innerHTML = `<section class="cs"><h2>Dead portals</h2>
+    <div class="sub">${deadPortals.length ? `${deadPortals.length} of ${O.portals.length} portals lead nowhere. Give each one a tag that exactly one other portal shares.` : `All ${O.portals.length} portals are linked.`} ${linked} working link${linked === 1 ? '' : 's'}. Tap one to find it on the map.</div>
+    ${deadPortals.length ? `<ul class="ptl">${deadPortals.map(({ p, i, why, warn }) => `<li class="row" tabindex="0" data-i="${i}" aria-current="${i === hlIdx}">${OSVG.portal}
+      <span class="nm"><b>${esc(p.tag || 'Untagged')}</b>${placeName(p).startsWith('x ') ? '' : ' · ' + esc(placeName(p))}<span class="why${warn ? ' warn' : ''}">${esc(why)}</span></span>
+      <span class="co">${fmt(p.x)}, ${fmt(p.z)}</span></li>`).join('')}</ul>` : ''}</section>`;
+  ptlBox.querySelectorAll('.row').forEach(li => {
+    li.onclick = () => highlightPortal(+li.dataset.i);
+    li.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); highlightPortal(+li.dataset.i); } };
+  });
+}
+renderPortals();
+
 // ---------- tabs ----------
-const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', inv: 'invbody', base: 'basebody', player: 'playerbody' };
+const TABS = { map: 'panelbody', clan: 'clanbody', feed: 'feedbody', inv: 'invbody', ptl: 'ptlbody', base: 'basebody', player: 'playerbody' };
 let currentTab = 'map';
 function showTab(name) {
   currentTab = name;
   Object.entries(TABS).forEach(([k, id]) => { document.getElementById(id).hidden = k !== name; });
-  ['map', 'clan', 'feed', 'inv'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
+  ['map', 'clan', 'feed', 'inv', 'ptl'].forEach(k => document.getElementById('tab-' + k).setAttribute('aria-selected', String(k === name)));
   if (narrow() && panel.classList.contains('collapsed')) setCollapsed(false);
   if (!['base', 'player'].includes(name)) { try { localStorage.setItem('vkw-tab', name); } catch (e) {} }
 }
-['map', 'clan', 'feed', 'inv'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
+['map', 'clan', 'feed', 'inv', 'ptl'].forEach(k => document.getElementById('tab-' + k).onclick = () => showTab(k));
 // ---------- panel ----------
 document.getElementById('stats').innerHTML =
   `Day <b>${D.day}</b> · <b>${D.km2} km²</b> charted · <b>${D.pins.length}</b> pins · as of ${D.asOf}`;
@@ -1177,7 +1229,7 @@ function setCollapsed(c) {
 }
 tog.onclick = () => setCollapsed(!panel.classList.contains('collapsed'));
 if (narrow()) setCollapsed(true);
-try { const saved = localStorage.getItem('vkw-tab'); if (['clan', 'feed', 'inv'].includes(saved)) showTab(saved); } catch (e) {}
+try { const saved = localStorage.getItem('vkw-tab'); if (['clan', 'feed', 'inv', 'ptl'].includes(saved)) showTab(saved); } catch (e) {}
 if (narrow()) setCollapsed(true);
 L.DomEvent.disableClickPropagation(panel);
 L.DomEvent.disableScrollPropagation(panel);
