@@ -13,10 +13,12 @@ State: STATE_DIR/discord.json  {"posted_upto": <epoch>, "status_id": "<message i
 """
 import json, os, sys, time, urllib.error, urllib.request, uuid
 
-BIG = ['boss', 'newbase', 'death', 'low', 'portal', 'ship', 'charted']
+BIG = ['boss', 'newbase', 'death', 'saplost', 'sapfull', 'low', 'portal', 'ship', 'charted']
 EMOJI = {'boss': '🏆', 'newbase': '🏠', 'death': '💀', 'portal': '🌀', 'ship': '⛵', 'charted': '🧭',
-         'low': '⚠️', 'restocked': '📦', 'build': '🔨', 'pins': '📍', 'demolish': '🪓', 'recovered': '⚰️', 'crossed': '✅'}
-COLOR = {'boss': 0xE9BB5E, 'death': 0xB8322B, 'low': 0xE07A2E, 'newbase': 0xC08A50, 'portal': 0x7F9CF5}
+         'low': '⚠️', 'restocked': '📦', 'build': '🔨', 'pins': '📍', 'demolish': '🪓', 'recovered': '⚰️', 'crossed': '✅',
+         'sapfull': '🍯', 'saplost': '💔', 'sapnew': '🌱', 'needle': '🔩'}
+COLOR = {'boss': 0xE9BB5E, 'death': 0xB8322B, 'low': 0xE07A2E, 'newbase': 0xC08A50, 'portal': 0x7F9CF5,
+         'sapfull': 0xD9A23A, 'saplost': 0x8E5BD6}
 UA = 'DiscordBot (https://github.com/lictorseverian/mmdghalla, 1.0)'
 
 
@@ -70,6 +72,7 @@ def summary(events, site, site_dir):
     if pins:
         extra.append(f"{pins} new pin{'s' if pins != 1 else ''}")
     extra += [f"📦 {e['text']}" for e in small if e['kind'] == 'restocked']
+    extra += [f"{EMOJI[e['kind']]} {e['text']}" for e in small if e['kind'] in ('sapnew', 'needle')]
     desc = '\n'.join(lines)
     if extra:
         desc += '\n\n*Also: ' + ', '.join(extra) + '*'
@@ -91,6 +94,16 @@ def status_card(stats, feed, site):
               dict(name='Portals', value=str(stats.get('portals', 0)), inline=True),
               dict(name='Pins', value=str(stats.get('pins', 0)), inline=True),
               dict(name='Unrecovered graves', value=str(stats.get('graves', 0)), inline=True)]
+    sap = stats.get('sap') or {}
+    if sap.get('extractors') or sap.get('loose') or sap.get('spare'):
+        bits = [f"{sap['extractors']} extractor{'s' if sap['extractors'] != 1 else ''}, **{sap['full']} full**"]
+        if sap['full_at']:
+            bits[0] += f" ({', '.join(sap['full_at'][:4])})"
+        if sap.get('loose'):
+            bits.append(f"🔩 **{sap['loose']} loose Dvergr extractor{'s' if sap['loose'] != 1 else ''}** on the ground")
+        if sap.get('spare'):
+            bits.append(f"{sap['spare']} spare in chests")
+        fields.append(dict(name='🍯 Sap', value='\n'.join(bits)[:1000], inline=False))
     for b in stats.get('low', []):
         rows = ' · '.join(f'{n} **{c}**/{t}' for n, c, t in b['items'])
         fields.append(dict(name=f"⚠️ Running low at {b['base']}", value=rows[:1000], inline=False))
@@ -108,6 +121,11 @@ def main():
     state_dir, site_dir = args
     hook, thread = os.environ.get('DISCORD_WEBHOOK', '').strip(), os.environ.get('DISCORD_THREAD_ID', '').strip()
     site = os.environ.get('SITE_URL', '').strip()
+    # DISCORD_SAP_PING: a role id (pinged as <@&id>) or 'user:<id>'; empty = no ping, just the embed
+    sp_raw = os.environ.get('DISCORD_SAP_PING', '').strip()
+    ping_user = sp_raw[5:] if sp_raw.startswith('user:') else ''
+    ping_role = '' if ping_user else sp_raw
+    ping = f'<@{ping_user}>' if ping_user else f'<@&{ping_role}>' if ping_role else ''
     if not hook:
         print('discord: no DISCORD_WEBHOOK secret set, skipping'); return
     q = f'?wait=true&thread_id={thread}' if thread else '?wait=true'
@@ -133,7 +151,11 @@ def main():
             evs = sorted(by_t[t], key=lambda e: [k for k in BIG + list(EMOJI)].index(e['kind']) if e['kind'] in EMOJI else 99)
             emb = summary(evs, site, site_dir)
             if emb:
-                call('POST', hook + q, dict(embeds=[emb]))
+                body = dict(embeds=[emb])
+                if ping and any(e['kind'] in ('sapfull', 'saplost') for e in evs):
+                    body.update(content=ping, allowed_mentions=dict(parse=[], roles=[ping_role] if ping_role else [],
+                                                                   users=[ping_user] if ping_user else []))
+                call('POST', hook + q, body)
             st['posted_upto'] = t
         card = status_card(stats, feed, site)
         png = open(os.path.join(site_dir, 'preview.png'), 'rb').read()

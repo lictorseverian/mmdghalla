@@ -165,6 +165,7 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
           DISCORD_THREAD_ID: ${{ vars.DISCORD_THREAD_ID || '1547337650090807307' }}
+          DISCORD_SAP_PING: ${{ vars.DISCORD_SAP_PING }}
         run: python scripts/discord.py state site ${{ inputs.discord_test && '--test' || '' }}
 
       - name: Save activity feed and timelapse state

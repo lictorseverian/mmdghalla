@@ -31,6 +31,9 @@ def snapshot(ex, pins, objs, bosses, day, ts):
         bosses=[b['key'] for b in bosses if b['done']],
         bases=[[b['name'], b['x'], b['z'], b['r'], b['pieces']] for b in objs['bases']],
         track=[r + [r[2] < r[3]] for r in stock.tracked(objs['bases'])],   # [base, prefab, n, thr, low]
+        sap=[[e['x'], e['z'], e['level'], e['by']] for e in objs['sap']['extractors']],
+        needles=[[n['x'], n['z'], n['n']] for n in objs['sap']['loose']],
+        sapmax=objs['sap']['max'],
     )
 
 
@@ -250,6 +253,8 @@ def diff(prev, cur):
         add('restocked', f"Restocked at {base}: " + names_list([f'{nm(r[1])} ({r[2]})' for r in rows], 8),
             x=x, z=z, items=[[nm(r[1]), r[2], r[3]] for r in rows])
 
+    sap_events(prev, cur, P, add)
+
     # newly charted ground
     ec, ep = explored(cur), explored(prev)
     new = ec & ~ep
@@ -284,14 +289,80 @@ def diff(prev, cur):
         noun = 'cart' if o[0] == 'Cart' else o[0].lower()
         add('ship', f'The {noun} {P.at(o[1], o[2])} is gone', x=o[1], z=o[2])
 
-    order = ['boss', 'newbase', 'death', 'low', 'portal', 'build', 'pins', 'charted', 'ship', 'restocked', 'recovered',
-             'crossed', 'demolish']
+    order = ['boss', 'newbase', 'death', 'saplost', 'sapfull', 'low', 'portal', 'build', 'pins', 'charted', 'ship', 'restocked', 'recovered',
+             'crossed', 'demolish', 'sapnew', 'needle']
     ev.sort(key=lambda e: order.index(e['kind']))
     for i, e in enumerate(ev):
         e.update(t=cur['ts'], day=cur['day'], id=f"{cur['ts']}-{i}")
         for k in [k for k, v in e.items() if v is None]:
             del e[k]
     return ev
+
+
+def _pair(a, b, d):
+    """Greedy nearest matching of [x, z, ...] rows within d metres. Returns (pairs, unmatched a, unmatched b)."""
+    left, pairs, lone = list(b), [], []
+    for r in a:
+        o = min(left, key=lambda o: math.hypot(o[0] - r[0], o[1] - r[1]), default=None)
+        if o is not None and math.hypot(o[0] - r[0], o[1] - r[1]) <= d:
+            pairs.append((r, o)); left.remove(o)
+        else:
+            lone.append(r)
+    return pairs, lone, left
+
+
+def sap_events(prev, cur, P, add):
+    """Sap extractors filling up, set up or lost, and loose Dvergr extractors turning up or vanishing.
+    Snapshots from before this existed have no 'sap': that run only records the baseline."""
+    if 'sap' not in prev:
+        return
+    full = cur.get('sapmax', 10)
+    pairs, gone, new = _pair(prev['sap'], cur['sap'], 1.0)    # extractors are build pieces: they don't move
+    nd_pairs, nd_gone, nd_new = _pair(prev.get('needles', []), cur['needles'], 4.0)
+
+    # filled up since last time (or set up and already full): one event per place
+    filled = collections.defaultdict(list)
+    for o, c in pairs:
+        if c[2] >= full > o[2]:
+            filled[P.name(c[0], c[1])].append(c)
+    for c in new:
+        if c[2] >= full:
+            filled[P.name(c[0], c[1])].append(c)
+    for where, cs in filled.items():
+        place = where if where.startswith(('near ', 'at ')) else 'at ' + where
+        n = len(cs)
+        what = 'A sap extractor is' if n == 1 else f'{n} sap extractors are'
+        x = sum(c[0] for c in cs) / n; z = sum(c[1] for c in cs) / n
+        add('sapfull', f'{what} full {place} ({full}/{full}): go collect the sap!', x=round(x, 1), z=round(z, 1),
+            n=n, marks=[[c[0], c[1], 'Sap extractor'] for c in cs])
+
+    # set up
+    built = collections.defaultdict(list)
+    for c in new:
+        built[(c[3] or 'Someone', P.name(c[0], c[1]))].append(c)
+    for (who, where), cs in built.items():
+        place = where if where.startswith(('near ', 'at ')) else 'at ' + where
+        what = 'a sap extractor' if len(cs) == 1 else f'{len(cs)} sap extractors'
+        add('sapnew', f'{who} set up {what} {place}', who=who, x=cs[0][0], z=cs[0][1],
+            marks=[[c[0], c[1], 'Sap extractor'] for c in cs])
+
+    # lost: say whether its Dvergr extractor is lying next to it
+    for o in gone:
+        place = P.at(o[0], o[1])
+        drop = min(nd_new, key=lambda d: math.hypot(d[0] - o[0], d[1] - o[1]), default=None)
+        if drop is not None and math.hypot(drop[0] - o[0], drop[1] - o[1]) <= 30:
+            nd_new.remove(drop)
+            add('saplost', f'A sap extractor {place} was destroyed. Its Dvergr extractor is lying on the ground, '
+                           f'grab it before it despawns!', x=drop[0], z=drop[1], marks=[[drop[0], drop[1], 'Dvergr extractor']])
+        else:
+            add('saplost', f'A sap extractor {place} is gone, and no Dvergr extractor was left behind', x=o[0], z=o[1])
+
+    # loose Dvergr extractors that turned up / disappeared on their own
+    for d in nd_new:
+        add('needle', f'A loose Dvergr extractor is lying on the ground {P.at(d[0], d[1])}', x=d[0], z=d[1],
+            marks=[[d[0], d[1], 'Dvergr extractor']])
+    for d in nd_gone:
+        add('needle', f'The loose Dvergr extractor {P.at(d[0], d[1])} was picked up or despawned', x=d[0], z=d[1])
 
 
 def update(state_dir, cur):

@@ -230,6 +230,14 @@ def og_tags(world, km2, day):
             '<meta name="theme-color" content="#e9bb5e">\n')
 
 
+def sap_stats(sap):
+    full = [e for e in sap['extractors'] if e['level'] >= sap['max']]
+    where = lambda o: o['base'] or f"{round(o['x'])}, {round(o['z'])}"
+    return dict(max=sap['max'], extractors=len(sap['extractors']), full=len(full),
+                full_at=sorted({where(e) for e in full}), stored=sum(e['level'] for e in sap['extractors']),
+                loose=sum(n['n'] for n in sap['loose']), spare=sap['spare'])
+
+
 def build(world_dir, dump_bin, out, state_dir=None):
     info, ex, pins, objs, bosses, day, digest, mtime = objects.state(world_dir)
     saved_at = os.path.getmtime(os.path.join(world_dir, f'_main.{vkw.latest_generation(world_dir)}.ok'))
@@ -294,7 +302,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
     data = dict(world=info['name'], west=west, north=north, mpp=MPP, edgeR=EDGE_R, nx=nx, ny=ny, tile=TILE, nativeZ=NATIVE_Z,
                 km2=km2, asOf=as_of, day=day, bosses=bosses,
                 objects=dict(portals=objs['portals'], ships=objs['ships'], bases=objs['bases'],
-                             pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves']),
+                             pieces=objs['pieces'], materials=objs['materials'], graves=objs['graves'], sap=objs['sap']),
                 clan=objs['clan'], feed=page_feed, tz=TZ,
                 stockGroups=[t for t, _ in objects.TREASURY_GROUPS] + ['Everything else'],
                 players=objs['players'], portraits=portraits, timelapse=tl,
@@ -314,7 +322,7 @@ def build(world_dir, dump_bin, out, state_dir=None):
                    boss_track=[dict(name=b['name'], done=b['done']) for b in bosses], graves=len(objs['graves']),
                    tables=len((vkw.LAST_REPORT or {}).get('tables', [])),
                    portals=len(objs['portals']),
-                   low=low_now),
+                   low=low_now, sap=sap_stats(objs['sap'])),
               open(os.path.join(out, 'stats.json'), 'w'))
     open(os.path.join(out, '.nojekyll'), 'w').close()
     print(f'{n} tiles, {km2} km², {len(pins)} pins, as of {as_of}', file=sys.stderr)

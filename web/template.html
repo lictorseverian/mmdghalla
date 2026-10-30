@@ -159,6 +159,13 @@ h1 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 30px; 
 .filters { padding-top: 8px !important; }
 .obj { background: none; border: none; }
 .obj svg { width: 100%; height: 100%; filter: drop-shadow(0 1px 1.5px rgba(0,0,0,.85)); }
+.obj.sapfull svg { animation: sapglow 1.4s ease-in-out infinite alternate; }
+.obj.loose svg { animation: looseglow 1.1s ease-in-out infinite alternate; }
+@keyframes sapglow { from { filter: drop-shadow(0 0 1px #ffb52e) drop-shadow(0 1px 1.5px rgba(0,0,0,.85)); } to { filter: drop-shadow(0 0 7px #ffb52e) drop-shadow(0 1px 1.5px rgba(0,0,0,.85)); } }
+@keyframes looseglow { from { filter: drop-shadow(0 0 1px #6fe3ff) drop-shadow(0 1px 1.5px rgba(0,0,0,.85)); } to { filter: drop-shadow(0 0 8px #6fe3ff) drop-shadow(0 1px 1.5px rgba(0,0,0,.85)); } }
+@media (prefers-reduced-motion: reduce) { .obj.sapfull svg, .obj.loose svg { animation: none; } }
+.sapbar { height: 7px; border-radius: 4px; background: #2a2219; margin: 6px 0 4px; overflow: hidden; }
+.sapbar i { display: block; height: 100%; background: linear-gradient(90deg, #b9741f, #ffc04a); }
 .pop ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 2px; }
 .pop li { font-size: 13px; }
 .pop li b { color: #9fd8ff; font-weight: 700; }
@@ -575,6 +582,36 @@ O.ships.forEach(s => {
     .bindPopup(`<div class="pop"><h3>${esc(s.kind)}</h3><div class="k">${esc(placeName(s))} · x ${fmt(s.x)}, z ${fmt(s.z)}</div>${note}</div>`));
 });
 
+// Sap extractors (with how full they are) and loose Dvergr extractors lying in the world
+const SAP = O.sap || { max: 10, extractors: [], loose: [], spare: 0 };
+const NEEDLE_PATH = `<path d="M0-11 3.2 3 0 8.5-3.2 3Z" fill="#a9c9de" stroke="${OL}" stroke-width="1.2"/><path d="M0-8V6" stroke="#5f7f96" stroke-width="1"/><circle cy="1.5" r="1.7" fill="#6fe3ff"/>`;
+const sapSvg = lvl => {
+  const f = Math.max(0, Math.min(1, lvl / SAP.max)), h = 13 * f, full = lvl >= SAP.max;
+  return `<svg viewBox="-12 -12 24 24"><path d="M0-12 2-5H-2Z" fill="#a9c9de" stroke="${OL}" stroke-width="1"/>
+    <rect x="-7" y="-5" width="14" height="15" rx="2" fill="#2a1d10" stroke="${full ? '#ffc04a' : OL}" stroke-width="${full ? 2 : 1.4}"/>
+    ${h ? `<rect x="-5.5" y="${8.5 - h}" width="11" height="${h}" rx="1" fill="${full ? '#ffc04a' : '#d08a2a'}"/>` : ''}
+    <path d="M-7 0H7" stroke="${OL}" stroke-width=".8" opacity=".6"/></svg>`;
+};
+OSVG.sap = sapSvg(7);
+OSVG.needle = `<svg viewBox="-12 -12 24 24">${NEEDLE_PATH}</svg>`;
+const sapLayer = L.layerGroup();
+SAP.extractors.forEach(e => {
+  const full = e.level >= SAP.max;
+  const icon = L.divIcon({ className: 'obj' + (full ? ' sapfull' : ''), html: sapSvg(e.level), iconSize: [22, 22], iconAnchor: [11, 11] });
+  sapLayer.addLayer(L.marker(toLL(e.x, e.z), { icon, keyboard: false, title: `Sap extractor ${e.level}/${SAP.max}`, zIndexOffset: full ? 280 : 240 })
+    .bindPopup(`<div class="pop"><h3>Sap extractor${full ? ' · full!' : ''}</h3>
+      <div class="sapbar"><i style="width:${100 * e.level / SAP.max}%"></i></div>
+      <div class="k"><b>${e.level}/${SAP.max}</b> sap · ${esc(placeName(e))}</div>
+      ${e.by ? `<div class="k">Set up by ${esc(e.by)}</div>` : ''}
+      ${full ? `<div class="k" style="color:#ffc04a">Full, it has stopped filling. Go collect!</div>` : ''}</div>`));
+});
+SAP.loose.forEach(n => {
+  const icon = L.divIcon({ className: 'obj loose', html: OSVG.needle, iconSize: [22, 22], iconAnchor: [11, 11] });
+  sapLayer.addLayer(L.marker(toLL(n.x, n.z), { icon, keyboard: false, title: 'Loose Dvergr extractor', zIndexOffset: 290 })
+    .bindPopup(`<div class="pop"><h3>Loose Dvergr extractor${n.n > 1 ? ' ×' + n.n : ''}</h3><div class="k">${esc(placeName(n))} · x ${fmt(n.x)}, z ${fmt(n.z)}</div>
+      <div class="x">Lying on the ground. Pick it up before it despawns: it's the part a sap extractor can't be built without.</div></div>`));
+});
+
 
 // ---------- graves layer ----------
 const GSVG = `<svg viewBox="-12 -12 24 24"><path d="M-7 10V-3A7 7 0 0 1 7-3V10Z" fill="#9c958a" stroke="${OL}" stroke-width="1.4"/><path d="M0-6V4M-3.5-2.5H3.5" stroke="#3a342c" stroke-width="2"/><path d="M-10 10H10" stroke="${OL}" stroke-width="2"/></svg>`;
@@ -599,6 +636,7 @@ const LAYERS = [
   ['portals', 'Portals', OSVG.portal, O.portals.length, portalsLayer],
   ['ships', 'Ships & carts', OSVG.ship, O.ships.length, shipsLayer],
   ['graves', 'Graves', OSVG.grave, O.graves.length, gravesLayer],
+  ['sap', 'Sap', OSVG.sap, SAP.extractors.length + SAP.loose.length, sapLayer],
 ];
 const lbox = document.getElementById('layers');
 function addLayerChip(key, label, svg, n, layer) {
@@ -743,10 +781,11 @@ const CHART_SVG = `<svg viewBox="-12 -12 24 24"><circle r="9" fill="#1d3a40" str
 const WARN_SVG = `<svg viewBox="-12 -12 24 24"><path d="M0-9.5 10 8.5h-20Z" fill="#3a2410" stroke="#ff9a3d" stroke-width="2" stroke-linejoin="round"/><path d="M0-3.5v5.5" stroke="#ff9a3d" stroke-width="2.2" stroke-linecap="round"/><circle cy="5.4" r="1.4" fill="#ff9a3d"/></svg>`;
 const CRATE_SVG = `<svg viewBox="-12 -12 24 24"><rect x="-8.5" y="-7" width="17" height="14" rx="1.5" fill="#2f2617" stroke="#c08a50" stroke-width="2"/><path d="M-8.5-1h17M-3-7v14M3-7v14" stroke="#c08a50" stroke-width="1.6"/></svg>`;
 const FEED_ICON = { low: WARN_SVG, restocked: CRATE_SVG, boss: SVG.boss, newbase: OSVG.base, build: OSVG.base, death: GSVG, recovered: GSVG, portal: OSVG.portal,
-  pins: SVG.dot, crossed: SVG.dot.replace('</svg>', XMARK + '</svg>'), charted: CHART_SVG, ship: OSVG.ship, demolish: SVG.hammer };
+  pins: SVG.dot, crossed: SVG.dot.replace('</svg>', XMARK + '</svg>'), charted: CHART_SVG, ship: OSVG.ship, demolish: SVG.hammer,
+  sapfull: sapSvg(SAP.max), sapnew: OSVG.sap, saplost: OSVG.needle, needle: OSVG.needle };
 function feedItem(e) {
   const go = e.x != null || (e.cells && e.cells.length) || (e.marks && e.marks.length);
-  return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}${e.kind === 'low' ? ' flow' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
+  return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}${e.kind === 'low' || e.kind === 'saplost' ? ' flow' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
     <span>${esc(e.text)}<span class="when">Day ${e.day} · ${fmtTime.format(new Date(e.t * 1000))}</span></span></div>`;
 }
 const evById = {}; F.events.forEach(e => evById[e.id] = e);
@@ -794,7 +833,7 @@ const recentLayer = L.layerGroup();
 const WEEK = 7 * 86400, nowS = Date.now() / 1000;
 const RC = { build: '#a6e35f', newbase: '#ffd35c', death: '#ff5a4e', recovered: '#b8b0a2', portal: '#b58cff',
   pins: '#fbf6ea', crossed: '#ff5a4e', charted: '#5ec7d6', ship: '#ffb347', demolish: '#ff8a3d', boss: '#ffd35c',
-  low: '#ff9a3d', restocked: '#a6e35f' };
+  low: '#ff9a3d', restocked: '#a6e35f', sapfull: '#ffc04a', sapnew: '#d08a2a', saplost: '#6fe3ff', needle: '#6fe3ff' };
 let recentCount = 0;
 F.events.filter(e => nowS - e.t < WEEK).forEach(e => {
   const a = Math.max(0.3, 1 - (nowS - e.t) / WEEK), c = RC[e.kind] || '#fff';
@@ -955,6 +994,7 @@ function tlApplyObjects(k) {
   // ships move around, so only their current spot is known; the recent layer is about now
   const shipsNow = k == null || k === TL.frames.length - 1;
   if (layerOn.ships) shipsNow ? map.addLayer(shipsLayer) : map.removeLayer(shipsLayer);
+  if (layerOn.sap) shipsNow ? map.addLayer(sapLayer) : map.removeLayer(sapLayer);   // fill levels are only known now
   if (layerOn.recent) k == null ? map.addLayer(recentLayer) : map.removeLayer(recentLayer);
   tlFrame = k;
   refreshPins(); sizePieces();

@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H = vkw.stable_hash
 K_CREATOR, K_TAG, K_OWNER_NAME = H('creator'), H('tag'), H('ownerName')
 K_OWNER, K_ITEMS, K_TIME_OF_DEATH, K_IN_WATER = H('owner'), H('items'), H('timeOfDeath'), H('inWater')
-K_SPAWNTIME, K_STACK = H('spawntime'), H('stack')
+K_SPAWNTIME, K_STACK, K_LEVEL = H('spawntime'), H('stack'), H('level')
 TICKS_PER_DAY = 1800 * 10_000_000                           # a Valheim day is 30 min; times are .NET ticks
 
 _names = None
@@ -26,6 +26,11 @@ STACK_PIECES = {
     'grausten_pile': ('Grausten', 50), 'treasure_stack': ('Coins', 99), 'treasure_pile': ('Coins', 999),
 }
 _LIVE_FISH = re.compile(r'Fish\d+(_cave)?$')
+
+# Sap: the extractor piece keeps its stored sap in the int field "level" (SapCollector.m_maxLevel = 10).
+# Its one irreplaceable ingredient is a Dvergr extractor (item DvergrNeedle), which only comes from Dvergr
+# crates; a loose one lying in the world (a destroyed extractor's drop) despawns if nobody picks it up.
+SAP_PIECE, NEEDLE, SAP_MAX = 'piece_sapcollector', 'DvergrNeedle', 10
 
 
 def names():
@@ -165,7 +170,9 @@ def state(world_dir):
                    b=sorted((round(b['x'] / 25), round(b['z'] / 25), b['pieces'] // 10) for b in objs['bases']),
                    s=sorted((s['kind'], round(s['x'] / 25), round(s['z'] / 25)) for s in objs['ships']),
                    g=sorted((t['owner'], round(t['x']), round(t['z'])) for t in objs['graves']),
-                   k=sorted(keys), t=stock.digest_key(objs['bases']))
+                   k=sorted(keys), t=stock.digest_key(objs['bases']),
+                   sap=sorted((round(e['x']), round(e['z']), e['level'] >= objs['sap']['max']) for e in objs['sap']['extractors']),
+                   dn=sorted((round(n['x'] / 5), round(n['z'] / 5)) for n in objs['sap']['loose']))
     digest = hashlib.sha256((table_digest + json.dumps(summary)).encode()).hexdigest()
     return info, ex, pins, objs, bosses, day, digest, mtime
 
@@ -174,6 +181,7 @@ def extract(world_dir, gen, files, pins):
     N = names()
     portals, ships, beds, pieces, tombs, chests, hives = [], [], [], [], [], [], []
     stacks, drops, item_prefabs = [], [], set()                 # stock outside chests
+    saps, needles = [], []
     ids = {}                                                     # player id -> character name
     for f in files:
         b = open(f, 'rb').read()
@@ -203,6 +211,11 @@ def extract(world_dir, gen, files, pins):
                 drops.append(dict(x=x, z=z, prefab=name, stack=fields.get('i', {}).get(K_STACK, 1)))
             if name == 'piece_beehive' and creator:
                 hives.append(creator)
+            if name == SAP_PIECE and creator:
+                lvl = fields.get('i', {}).get(K_LEVEL, 0)
+                saps.append(dict(x=round(x, 1), z=round(z, 1), level=max(0, min(SAP_MAX, lvl)), _by=creator))
+            elif name == NEEDLE and not creator:
+                needles.append(dict(x=round(x, 1), z=round(z, 1), n=fields.get('i', {}).get(K_STACK, 1)))
             if creator:
                 pieces.append((x, z, material(name), name, creator, y))
             blob = fields.get('b', {}).get(K_ITEMS)
@@ -236,13 +249,26 @@ def extract(world_dir, gen, files, pins):
         b.pop('_ps', None)
     for sh in ships:
         sh.pop('_by', None)
+    sap = sap_state(saps, needles, chests, bases, who)
     mat_count = collections.Counter(p[2] for p in pieces)
     return dict(portals=portals, ships=ships, bases=bases, clan=clan(ids, pieces, pins, tombs, chests, bases), raw=raw,
                 _idnames=dict(ids), players=people,
                 graves=[dict(owner=t['owner'], x=t['x'], z=t['z'], day=t['day'], water=t['water'], items=summarise(t['items']))
                         for t in tombs],
+                sap=sap,
                 pieces=[[round(x, 1), round(z, 1), MAT_IDS.get(m, len(MATERIALS))] for x, z, m, *_ in pieces],
                 materials=[m for m, _ in MATERIALS] + ['other'], mat_count=dict(mat_count))
+
+
+def sap_state(saps, needles, chests, bases, who):
+    """Sap extractors (fill level, builder, base) and Dvergr extractors: loose in the world, or spare in chests."""
+    def base_name(o):
+        b = next((b for b in bases if math.hypot(o['x'] - b['x'], o['z'] - b['z']) <= b['r'] + 5), None)
+        return b and b['name']
+    ext = [dict(x=s['x'], z=s['z'], level=s['level'], by=who(s['_by']), base=base_name(s)) for s in saps]
+    ext.sort(key=lambda s: (-s['level'], s['x'], s['z']))
+    spare = sum(it['stack'] for ch in chests for it in ch['items'] if it['prefab'] == NEEDLE)
+    return dict(max=SAP_MAX, extractors=ext, loose=needles, spare=spare)
 
 
 def cluster(pieces, beds, portals, pins, cell=24):
