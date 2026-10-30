@@ -16,7 +16,7 @@ import json, os, sys, time, urllib.error, urllib.request, uuid
 BIG = ['boss', 'newbase', 'death', 'saplost', 'sapfull', 'low', 'portal', 'ship', 'charted']
 EMOJI = {'boss': '🏆', 'newbase': '🏠', 'death': '💀', 'portal': '🌀', 'ship': '⛵', 'charted': '🧭',
          'low': '⚠️', 'restocked': '📦', 'build': '🔨', 'pins': '📍', 'demolish': '🪓', 'recovered': '⚰️', 'crossed': '✅',
-         'sapfull': '🍯', 'saplost': '💔', 'sapnew': '🌱', 'needle': '🔩'}
+         'sapfull': '🍯', 'saplost': '💔', 'sapnew': '🌱', 'sapmoved': '↪️', 'sapgone': '🪓', 'needle': '🔩'}
 COLOR = {'boss': 0xE9BB5E, 'death': 0xB8322B, 'low': 0xE07A2E, 'newbase': 0xC08A50, 'portal': 0x7F9CF5,
          'sapfull': 0xD9A23A, 'saplost': 0x8E5BD6}
 UA = 'DiscordBot (https://github.com/lictorseverian/mmdghalla, 1.0)'
@@ -72,7 +72,7 @@ def summary(events, site, site_dir):
     if pins:
         extra.append(f"{pins} new pin{'s' if pins != 1 else ''}")
     extra += [f"📦 {e['text']}" for e in small if e['kind'] == 'restocked']
-    extra += [f"{EMOJI[e['kind']]} {e['text']}" for e in small if e['kind'] in ('sapnew', 'needle')]
+    extra += [f"{EMOJI[e['kind']]} {e['text']}" for e in small if e['kind'] in ('sapnew', 'sapmoved', 'sapgone', 'needle')]
     desc = '\n'.join(lines)
     if extra:
         desc += '\n\n*Also: ' + ', '.join(extra) + '*'

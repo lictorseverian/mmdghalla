@@ -782,7 +782,7 @@ const WARN_SVG = `<svg viewBox="-12 -12 24 24"><path d="M0-9.5 10 8.5h-20Z" fill
 const CRATE_SVG = `<svg viewBox="-12 -12 24 24"><rect x="-8.5" y="-7" width="17" height="14" rx="1.5" fill="#2f2617" stroke="#c08a50" stroke-width="2"/><path d="M-8.5-1h17M-3-7v14M3-7v14" stroke="#c08a50" stroke-width="1.6"/></svg>`;
 const FEED_ICON = { low: WARN_SVG, restocked: CRATE_SVG, boss: SVG.boss, newbase: OSVG.base, build: OSVG.base, death: GSVG, recovered: GSVG, portal: OSVG.portal,
   pins: SVG.dot, crossed: SVG.dot.replace('</svg>', XMARK + '</svg>'), charted: CHART_SVG, ship: OSVG.ship, demolish: SVG.hammer,
-  sapfull: sapSvg(SAP.max), sapnew: OSVG.sap, saplost: OSVG.needle, needle: OSVG.needle };
+  sapfull: sapSvg(SAP.max), sapnew: OSVG.sap, sapmoved: OSVG.sap, sapgone: OSVG.sap, saplost: OSVG.needle, needle: OSVG.needle };
 function feedItem(e) {
   const go = e.x != null || (e.cells && e.cells.length) || (e.marks && e.marks.length);
   return `<div class="fi${go ? ' go' : ''}${e.kind === 'boss' ? ' fboss' : ''}${e.kind === 'low' || e.kind === 'saplost' ? ' flow' : ''}" ${go ? `tabindex="0" data-ev="${esc(e.id)}"` : ''}>${FEED_ICON[e.kind] || SVG.dot}
@@ -833,7 +833,7 @@ const recentLayer = L.layerGroup();
 const WEEK = 7 * 86400, nowS = Date.now() / 1000;
 const RC = { build: '#a6e35f', newbase: '#ffd35c', death: '#ff5a4e', recovered: '#b8b0a2', portal: '#b58cff',
   pins: '#fbf6ea', crossed: '#ff5a4e', charted: '#5ec7d6', ship: '#ffb347', demolish: '#ff8a3d', boss: '#ffd35c',
-  low: '#ff9a3d', restocked: '#a6e35f', sapfull: '#ffc04a', sapnew: '#d08a2a', saplost: '#6fe3ff', needle: '#6fe3ff' };
+  low: '#ff9a3d', restocked: '#a6e35f', sapfull: '#ffc04a', sapnew: '#d08a2a', sapmoved: '#d08a2a', sapgone: '#b8b0a2', saplost: '#6fe3ff', needle: '#6fe3ff' };
 let recentCount = 0;
 F.events.filter(e => nowS - e.t < WEEK).forEach(e => {
   const a = Math.max(0.3, 1 - (nowS - e.t) / WEEK), c = RC[e.kind] || '#fff';

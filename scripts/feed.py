@@ -290,7 +290,7 @@ def diff(prev, cur):
         add('ship', f'The {noun} {P.at(o[1], o[2])} is gone', x=o[1], z=o[2])
 
     order = ['boss', 'newbase', 'death', 'saplost', 'sapfull', 'low', 'portal', 'build', 'pins', 'charted', 'ship', 'restocked', 'recovered',
-             'crossed', 'demolish', 'sapnew', 'needle']
+             'crossed', 'demolish', 'sapnew', 'sapmoved', 'sapgone', 'needle']
     ev.sort(key=lambda e: order.index(e['kind']))
     for i, e in enumerate(ev):
         e.update(t=cur['ts'], day=cur['day'], id=f"{cur['ts']}-{i}")
@@ -309,6 +309,9 @@ def _pair(a, b, d):
         else:
             lone.append(r)
     return pairs, lone, left
+
+
+MOVE_M = 40                 # an extractor taken down and set up again within this distance counts as moved
 
 
 def sap_events(prev, cur, P, add):
@@ -336,6 +339,19 @@ def sap_events(prev, cur, P, add):
         add('sapfull', f'{what} full {place} ({full}/{full}): go collect the sap!', x=round(x, 1), z=round(z, 1),
             n=n, marks=[[c[0], c[1], 'Sap extractor'] for c in cs])
 
+    # rebuilt nearby: one gone + one set up within MOVE_M in the same update is a move, not a loss.
+    # Done before the drop check so a move never claims a loose Dvergr extractor.
+    moves, gone, new = _pair(gone, new, MOVE_M)
+    by_mover = collections.defaultdict(list)
+    for o, c in moves:
+        by_mover[(c[3] or 'Someone', P.name(c[0], c[1]))].append((o, c))
+    for (who, where), ms in by_mover.items():
+        place = where if where.startswith(('near ', 'at ')) else 'at ' + where
+        what = 'a sap extractor' if len(ms) == 1 else f'{len(ms)} sap extractors'
+        far = max(math.hypot(o[0] - c[0], o[1] - c[1]) for o, c in ms)
+        add('sapmoved', f'{who} moved {what} {place} ({round(far)} m)', who=who, x=ms[0][1][0], z=ms[0][1][1],
+            marks=[[c[0], c[1], 'Sap extractor'] for _, c in ms], line=[[ms[0][0][0], ms[0][0][1]], [ms[0][1][0], ms[0][1][1]]])
+
     # set up
     built = collections.defaultdict(list)
     for c in new:
@@ -354,8 +370,8 @@ def sap_events(prev, cur, P, add):
             nd_new.remove(drop)
             add('saplost', f'A sap extractor {place} was destroyed. Its Dvergr extractor is lying on the ground, '
                            f'grab it before it despawns!', x=drop[0], z=drop[1], marks=[[drop[0], drop[1], 'Dvergr extractor']])
-        else:
-            add('saplost', f'A sap extractor {place} is gone, and no Dvergr extractor was left behind', x=o[0], z=o[1])
+        else:                                             # nothing on the ground: almost always deconstructed
+            add('sapgone', f'A sap extractor {place} was taken down', x=o[0], z=o[1])
 
     # loose Dvergr extractors that turned up / disappeared on their own
     for d in nd_new:
