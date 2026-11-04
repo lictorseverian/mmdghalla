@@ -162,7 +162,7 @@ def load(world_dir):
 
 BOSS = {'$enemy_eikthyr': 'Eikthyr', '$enemy_gdking': 'The Elder', '$enemy_bonemass': 'Bonemass',
         '$enemy_dragon': 'Moder', '$enemy_goblinking': 'Yagluth', '$enemy_seekerqueen': 'The Queen',
-        '$enemy_fader': 'Fader', '$hud_pin_hildir1': 'Smouldering Tomb',
+        '$enemy_fader': 'Fader', '$enemy_fader_codename': 'Fader', '$hud_pin_hildir1': 'Smouldering Tomb',
         '$hud_pin_hildir2': 'Howling Cavern', '$hud_pin_hildir3': 'Sealed Tower'}
 
 
